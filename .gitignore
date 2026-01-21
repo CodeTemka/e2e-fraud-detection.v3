@@ -1,0 +1,42 @@
+# Env, Secrets
+.env 
+sp_credentials.json
+
+# Virtual environments
+.venv/
+.env*/
+venv/
+
+# Ruff cache
+.ruff_cache/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Artifacts
+mlruns/
+outputs/
+logs/
+
+
+# Distribution / packaging
+.Python
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage*
+hypothesis/
+
+# Jupyter
+.ipynb_checkpoints
+
+#IDEs and tooling
+.idea/
+.vscode/
+*.code-workspace
