@@ -24,9 +24,9 @@ class Settings(BaseSettings):
     )
 
     subscription_id: str | None = Field(default=None, validation_alias=AliasChoices("SUBSCRIPTION_ID"))
-    resource_group: str = Field(default='fraud-detection-rg')
-    workspace_name: str = Field(default='e2e-fraud-detection-ws')
-    location: str = Field(default='eastasia')
+    resource_group: str = Field(default='fraud-detection-demo-rg')
+    workspace_name: str = Field(default='fraud-detection-demo-ws')
+    location: str = Field(default='eastus2')
 
     # DEFAULT CONFIGS
     # Compute settings is configured considering 20 quota limit.
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     custom_train_exp: str = Field(default="custom-train-exp")
 
     # Model and deployment settings
-    prod_model_name: str = Field(default="fraud-detection-model")
+    prod_model_name: str = Field(default="fraud-detection-prod-model")
     endpoint_name: str = Field(default="fraud-detection-app")
     deployment_name: str = Field(default='blue')
 
@@ -105,19 +105,6 @@ def build_job_name(prefix: str, key: str) -> str:
     return f"{prefix}-{key}"
 
 
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9-]+", "-", value.strip().lower())
-    slug = re.sub(r"-{2,}", "-", slug).strip("-")
-    return slug or 'job'
-
-
-def preflight_validate_training_data(path: str) -> bool:
-    if path.startswith("azureml:"):
-        return True
-    else:
-        return False
-
-
 def get_git_sha(short: bool = True) -> str:
     cmd = ["git", "rev-parse", "--short" if short else "HEAD"]
     try:
@@ -133,7 +120,4 @@ __all__ = [
     "build_idempotency_key",
     "get_git_sha",
     "get_settings",
-    "preflight_validate_training_data",
-    "slugify",
 ]
-    
