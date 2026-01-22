@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     training_compute_cluster_name: str = Field(default="training-cluster")
     training_compute_cluster_type: str = Field(default="Standard_D2s_v3")
     training_compute_cluster_node_max_count: int = Field(default=3)
+    data_compute_cluster_name: str = Field(default="data-cluster")
+    data_compute_cluster_type: str = Field(default="Standard_D3_v2")
+    data_compute_cluster_node_max_count: int = Field(default=1)
     compute_idle_time_before_scale_down: int = Field(default=200)
     deployment_instance_type: str = Field(default="Standard_D2a_v4")
     deployment_instance_count: int = Field(default=1)
@@ -40,6 +43,8 @@ class Settings(BaseSettings):
     # Dataset settings
     registered_dataset_name: str = Field(default="original-creditcard")
     local_data_path: Path = Field(default=ROOT_DIR / "data")
+    registered_train: str = Field(default="fraud-detection-train-data")
+    registered_test: str = Field(default="fraud-detection-test-data")
     
     # Metric settings
     default_metric_automl_train: str = Field(default="average_precision_score_weighted")

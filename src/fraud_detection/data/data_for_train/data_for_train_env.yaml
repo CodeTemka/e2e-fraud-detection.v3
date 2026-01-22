@@ -1,4 +1,4 @@
-name: data-validation-env
+name: data-for-train-env
 channels:
   - conda-forge
 dependencies:
@@ -7,10 +7,12 @@ dependencies:
   - pip:
       - pandas==2.3.3
       - numpy==2.1.3
+      - scikit-learn==1.8.0
+      - joblib==1.4.2
+      - pyarrow==17.0.0
       - mltable==1.6.3
       - typer==0.20.0
       - pydantic==2.12.5
       - pydantic-settings==2.12.0
-      - pyarrow==17.0.0
       - azure-ai-ml==1.30.0
       - azure-identity==1.17.0

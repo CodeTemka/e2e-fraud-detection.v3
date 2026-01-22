@@ -54,7 +54,13 @@ class ValidationOptions:
 
 
 
-def load_from_mltable(data_name: str, sample_rows: int | None, mlclient: MLClient) -> pd.DataFrame:
+def load_from_mltable(
+    data_name: str,
+    sample_rows: int | None = None,
+    mlclient: MLClient | None = None,
+) -> pd.DataFrame:
+    if mlclient is None:
+        mlclient = get_ml_client()
     data = mlclient.data.get(name=data_name)
     mltable_data = mltable.load(data.path)
     if sample_rows is not None:
@@ -414,7 +420,7 @@ def _psi(reference: np.ndarray, current: np.ndarray, bins: int) -> float:
     quantiles = np.linspace(0.0, 1.0, bins+1)
     edges = np.quantile(reference, quantiles)
     edges[0] = -np.inf
-    edges[-1] = -np.inf
+    edges[-1] = np.inf
     edges = np.unique(edges)
     if edges.size < 2:
         return np.nan

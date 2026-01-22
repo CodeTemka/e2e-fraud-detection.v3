@@ -25,7 +25,7 @@ def create_environment(ml_client: MLClient) -> Environment:
         name="data-validation-env",
         description="Environment for data validation component",
         conda_file=Path(__file__).resolve().parent / "data_validate_env.yaml",
-        image="mcr.microsoft.com/azureml/openmpi5.0-ubuntu22.04",
+        image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04",
         version=env_version,
     )
     created = ml_client.environments.create_or_update(data_validation_env)
