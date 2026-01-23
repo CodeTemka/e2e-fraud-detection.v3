@@ -26,6 +26,41 @@ from fraud_detection.data.data_val.data_validate import (
 
 logger = get_logger(__name__)
 
+_TRUE_VALUES = {"true", "1", "yes", "y"}
+_FALSE_VALUES = {"false", "0", "no", "n"}
+
+
+def read_is_valid_flag(path: str | Path | None) -> tuple[bool, str | None]:
+    if not path:
+        return True, None
+
+    flag_path = Path(path)
+    try:
+        content = flag_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return False, "is_valid file not found"
+    except OSError as exc:
+        return False, f"failed to read is_valid file: {exc}"
+
+    normalized = content.lower()
+    if normalized in _TRUE_VALUES:
+        return True, None
+    if normalized in _FALSE_VALUES:
+        return False, "validation flag false"
+    return False, f"unexpected is_valid value: {content!r}"
+
+
+def write_validation_failure_metadata(metadata_output: str | Path, *, reason: str) -> dict[str, object]:
+    metadata_path = Path(metadata_output)
+    payload = {
+        "validation_passed": False,
+        "status": "skipped",
+        "reason": reason,
+    }
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return payload
+
 
 def split_data(
     df: pd.DataFrame,
@@ -164,8 +199,10 @@ def save_outputs(
 
 
 __all__ = [
+    "read_is_valid_flag",
     "split_data",
     "fit_scalers",
     "transform_with_scalers",
     "save_outputs",
+    "write_validation_failure_metadata",
 ]

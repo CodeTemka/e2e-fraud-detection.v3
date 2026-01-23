@@ -18,9 +18,11 @@ from fraud_detection.data.data_val.data_validate import (
 )
 from fraud_detection.data.data_for_train.data_for_train import (
     fit_scalers,
+    read_is_valid_flag,
     save_outputs,
     split_data,
-    transform_with_scalers
+    transform_with_scalers,
+    write_validation_failure_metadata,
 )
 from fraud_detection.pipeline.data_pipeline import submit_data_pipeline_job
 from fraud_detection.utils.logging import get_logger
@@ -155,6 +157,13 @@ def prep_data_for_train(
             help="Name of the registered dataset to prepare for training.",
         ),
     ] = None,
+    is_valid: Annotated[
+        str | None,
+        typer.Option(
+            "--is-valid",
+            help="Path to validation flag file ('true'/'false').",
+        ),
+    ] = None,
     test_ratio: Annotated[
         float,
         typer.Option("--test-ratio", help="Test split ratio.", min=0.0, max=1.0),
@@ -177,6 +186,19 @@ def prep_data_for_train(
     ] = None,
 ) -> None:
     """Prepare train/test splits with scaled Amount/Time columns (test remains unscaled)."""
+    is_valid_result, invalid_reason = read_is_valid_flag(is_valid)
+    if not is_valid_result:
+        if not metadata:
+            raise typer.BadParameter("Missing output path for: metadata")
+        if scalers:
+            Path(scalers).mkdir(parents=True, exist_ok=True)
+        write_validation_failure_metadata(
+            metadata,
+            reason=invalid_reason or "Validation flag false; skipping data preparation.",
+        )
+        typer.echo("Data validation failed; skipping data preparation.")
+        return
+
     output_paths = {
         "scalers": scalers,
         "metadata": metadata,

@@ -51,7 +51,7 @@ def create_command():
             "label_col": Input(type="string", default="Class"),
             "test_ratio": Input(type="number", default=0.2),
             "seed": Input(type="integer", default=42),
-            "validation_gate": Input(type=AssetTypes.URI_FILE, optional=True),
+            "is_valid": Input(type=AssetTypes.URI_FILE),
         },
         outputs={
             "scalers": Output(type=AssetTypes.URI_FOLDER),
@@ -65,6 +65,7 @@ def create_command():
             "--label-col ${{inputs.label_col}} "
             "--test-ratio ${{inputs.test_ratio}} "
             "--seed ${{inputs.seed}} "
+            "--is-valid ${{inputs.is_valid}} "
             "--scalers ${{outputs.scalers}} "
             "--metadata ${{outputs.metadata}}"
         ),
