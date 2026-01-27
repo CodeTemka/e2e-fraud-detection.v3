@@ -25,6 +25,9 @@ from fraud_detection.data.data_for_train.data_for_train import (
     write_validation_failure_metadata,
 )
 from fraud_detection.pipeline.data_pipeline import submit_data_pipeline_job
+from fraud_detection.training.automl import SUPPORTED_CLASSIFICATION_METRICS, automl_job_builder, create_automl_job, submit_job
+from fraud_detection.training.xgb.submit_xgb import xgb_sweep_job_builder, submit_xgb_sweep_job, resolve_xgb_environment, create_xgb_sweep_job
+from fraud_detection.utils.compute import ensure_training_compute
 from fraud_detection.utils.logging import get_logger
 from fraud_detection.azure.client import get_ml_client
 
@@ -49,6 +52,13 @@ def validate_data(
         typer.Option(
             "--dataset-name",
             help="Name of the registered dataset to validate.",
+        ),
+    ] = None,
+    data_label: Annotated[
+        str | None,
+        typer.Option(
+            "--data-label",
+            help="Label for the registered dataset asset.",
         ),
     ] = None,
     validation_report: Annotated[
@@ -123,10 +133,16 @@ def validate_data(
     settings = get_settings()
     ml_client = get_ml_client()
     dataset_name = dataset_name or settings.registered_dataset_name
+    resolved_data_label = data_label or settings.registered_dataset_label
     resolved_required = list(REQUIRED_COLUMNS) if required_columns is None else required_columns
 
     try:
-        df = load_from_mltable(dataset_name, sample_rows=sample_rows, mlclient=ml_client)
+        df = load_from_mltable(
+            dataset_name,
+            sample_rows=sample_rows,
+            mlclient=ml_client,
+            data_label=resolved_data_label,
+        )
         is_valid, report = validate_dataframe(
             df,
             required_columns=resolved_required,
@@ -155,6 +171,13 @@ def prep_data_for_train(
         typer.Option(
             "--data-name",
             help="Name of the registered dataset to prepare for training.",
+        ),
+    ] = None,
+    data_label: Annotated[
+        str | None,
+        typer.Option(
+            "--data-label",
+            help="Label for the registered dataset asset.",
         ),
     ] = None,
     is_valid: Annotated[
@@ -213,9 +236,14 @@ def prep_data_for_train(
     settings = get_settings()
     ml_client = get_ml_client()
     dataset_name = data_name or settings.registered_dataset_name
+    resolved_data_label = data_label or settings.registered_dataset_label
 
     try:
-        df = load_from_mltable(dataset_name, mlclient=ml_client)
+        df = load_from_mltable(
+            dataset_name,
+            mlclient=ml_client,
+            data_label=resolved_data_label,
+        )
         train_df, test_df = split_data(
             df,
             label_col=label_col,
@@ -257,7 +285,7 @@ def run_data_pipeline(
     test_ratio: Annotated[
         float,
         typer.Option("--test-ratio", help="Test split ratio.", min=0.0, max=1.0),
-    ] = 0.2,
+    ] = 0.1,
     seed: Annotated[
         int,
         typer.Option("--seed", help="Random seed for splitting.", min=0),
@@ -302,6 +330,105 @@ def run_data_pipeline(
     typer.echo(f"Submitted pipeline job: {job.name}")
     if wait:
         ml_client.jobs.stream(job.name)
+
+
+@app.command()
+def train_automl(
+    metric: Annotated[
+        str,
+        typer.Option(
+            "--metric",
+            "-m",
+            help=f"Please choose from {list(SUPPORTED_CLASSIFICATION_METRICS)}",
+            case_sensitive=False,
+        ),
+    ] = None,
+    compute: Annotated[
+        str | None,
+        typer.Option("--compute", help="Azure ML compute cluster name for training (optional override)."),
+    ] = None,
+    algorithms: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--algorithms",
+            "-a",
+            help="Restrict training algorithms (comma-separated or repeated). If not provided, AutoML uses its default algorithm set.",
+        ),
+    ] = None,
+):
+    """Submit an AutoML classification job for fraud detection."""
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    resolved_metric = metric or settings.default_metric_automl_train
+    training_data = settings.registered_train
+
+    compute_target = compute or settings.training_compute_cluster_name
+    ensure_training_compute(
+        ml_client,
+        name=compute_target,
+        size=settings.training_compute_cluster_type,
+        min_instances=0,
+        max_instances=settings.training_compute_cluster_node_max_count,
+        idle_time_before_scale_down=settings.compute_idle_time_before_scale_down,
+    )
+
+    automl_job_config = automl_job_builder(
+        metric=resolved_metric,
+        training_data=training_data,
+        compute=compute_target,
+        allowed_algorithms=algorithms,
+    )
+
+    job = create_automl_job(config=automl_job_config)
+    job_name = submit_job(ml_client=ml_client, job=job)
+    typer.echo(f"Submitted AutoML job: {job_name}")
+
+
+@app.command()
+def train_xgb(
+    train_data: Annotated[str | None, typer.Option("--train_data", help="Path to the training data file")] = None,
+    test_data: Annotated[str | None, typer.Option("--test_data", help="Path to the testing data file")] = None,
+    metric: Annotated[str, typer.Option("--metric", help="Evaluation metric to use for training")] = "average_precision_score_macro",
+    compute: Annotated[str | None, typer.Option("--compute", help="Compute target for Task")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry_run", help="If set, the training will not be executed")] = False,
+):
+    """Submit an XGBoost hyperparameter sweep job."""
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    training_data = train_data or settings.registered_train
+    testing_data= test_data or settings.registered_test
+    compute_target = compute or settings.training_compute_cluster_name
+    ensure_training_compute(
+        ml_client,
+        name=compute_target,
+        size=settings.training_compute_cluster_type,
+        min_instances=0,
+        max_instances=settings.training_compute_cluster_node_max_count,
+        idle_time_before_scale_down=settings.compute_idle_time_before_scale_down,
+    )
+
+    try:
+        config = xgb_sweep_job_builder(
+            training_data=training_data,
+            test_data=testing_data,
+            metric=metric,
+            compute=compute_target,
+            settings=settings,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if dry_run:
+        environment = resolve_xgb_environment(ml_client, config)
+        job = create_xgb_sweep_job(config, environment=environment)
+        typer.echo(f"Built XGBoost sweep job: {job.experiment_name}")
+        return
+
+    job_name = submit_xgb_sweep_job(ml_client, config)
+    typer.echo(f"Submitted XGBoost sweep job: {job_name}")
 
 
 def run() -> None:

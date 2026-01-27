@@ -5,7 +5,7 @@ from azure.ai.ml.dsl import pipeline
 
 from fraud_detection.config import ROOT_DIR, get_settings
 from fraud_detection.utils.logging import get_logger
-from fraud_detection.azure.client import get_ml_client
+from fraud_detection.azure.client import get_ml_client, resolve_azure_env_vars
 
 
 logger = get_logger(__name__)
@@ -26,6 +26,18 @@ def _get_component(ml_client: MLClient, name: str, version: str | None) -> objec
         raise ValueError(f"No component named '{name}' found.") from exc
 
     return component
+
+
+def _apply_env_vars_to_jobs(pipeline_job: object, env_vars: dict[str, str]) -> None:
+    if not env_vars:
+        return
+    jobs = getattr(pipeline_job, "jobs", None)
+    if not isinstance(jobs, dict):
+        return
+    for job in jobs.values():
+        existing = getattr(job, "environment_variables", None) or {}
+        merged = {**existing, **env_vars}
+        setattr(job, "environment_variables", merged)
 
 
 def create_data_pipeline_job(
@@ -68,6 +80,9 @@ def create_data_pipeline_job(
         test_ratio=test_ratio,
         seed=seed,
     )
+
+    azure_env_vars = resolve_azure_env_vars(settings=settings)
+    _apply_env_vars_to_jobs(pipeline_job, azure_env_vars)
     
     return pipeline_job
 

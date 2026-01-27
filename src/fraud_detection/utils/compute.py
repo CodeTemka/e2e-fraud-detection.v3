@@ -133,17 +133,31 @@ def ensure_compute(
 
 def ensure_training_compute(
     ml_client: MLClient,
+    *,
+    name: str | None = None,
+    size: str | None = None,
+    min_instances: int | None = None,
+    max_instances: int | None = None,
+    idle_time_before_scale_down: int | None = None,
 ) -> Any:
     """Ensure compute for training jobs is present."""
 
     settings = get_settings()
     return ensure_compute(
         ml_client,
-        name=settings.training_compute_cluster_name,
-        size=settings.training_compute_cluster_type,
-        min_instances=0,
-        max_instances=settings.training_compute_cluster_node_max_count,
-        idle_time_before_scale_down=settings.compute_idle_time_before_scale_down,
+        name=name or settings.training_compute_cluster_name,
+        size=size or settings.training_compute_cluster_type,
+        min_instances=0 if min_instances is None else min_instances,
+        max_instances=(
+            settings.training_compute_cluster_node_max_count
+            if max_instances is None
+            else max_instances
+        ),
+        idle_time_before_scale_down=(
+            settings.compute_idle_time_before_scale_down
+            if idle_time_before_scale_down is None
+            else idle_time_before_scale_down
+        ),
     )
 
 

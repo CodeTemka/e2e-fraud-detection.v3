@@ -14,6 +14,7 @@ from pandas.api import types as ptypes
 from azure.ai.ml import MLClient
 
 from fraud_detection.azure.client import get_ml_client
+from fraud_detection.config import get_settings
 
 REQUIRED_COLUMNS: tuple[str, ...] = (
     "Time",
@@ -58,10 +59,12 @@ def load_from_mltable(
     data_name: str,
     sample_rows: int | None = None,
     mlclient: MLClient | None = None,
+    data_label: str | None = None,
 ) -> pd.DataFrame:
     if mlclient is None:
         mlclient = get_ml_client()
-    data = mlclient.data.get(name=data_name)
+    resolved_label = data_label or get_settings().registered_dataset_label
+    data = mlclient.data.get(name=data_name, label=resolved_label)
     mltable_data = mltable.load(data.path)
     if sample_rows is not None:
         mltable_data = mltable_data.take(sample_rows)

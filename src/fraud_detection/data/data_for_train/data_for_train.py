@@ -7,7 +7,6 @@ import tempfile
 from pathlib import Path
 
 import joblib
-import mltable
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
@@ -121,6 +120,21 @@ def transform_with_scalers(df: pd.DataFrame, scalers: dict[str, RobustScaler]) -
     return transformed_df
 
 
+def _write_mltable_from_dataframe(df: pd.DataFrame, output_dir: Path, *, filename: str) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    data_path = output_dir / filename
+    df.to_parquet(data_path, index=False)
+
+    mltable_path = output_dir / "MLTable"
+    mltable_contents = (
+        "paths:\n"
+        f"  - file: ./{filename}\n"
+        "transformations:\n"
+        "  - read_parquet: {}\n"
+    )
+    mltable_path.write_text(mltable_contents, encoding="utf-8")
+
+
 def save_outputs(
     ml_client: MLClient, 
     *,
@@ -165,8 +179,7 @@ def save_outputs(
         train_path = tmp_path / "train_mltable"
         test_path = tmp_path / "test_mltable"
 
-        train_mltable = mltable.from_pandas(train_df)
-        train_mltable.save(train_path)
+        _write_mltable_from_dataframe(train_df, train_path, filename="train.parquet")
         train_asset = Data(
             name=settings.registered_train,
             version="1",
@@ -180,8 +193,7 @@ def save_outputs(
             extra={"data": f"{train_asset.name}:{train_asset.version}"},
         )
 
-        test_mltable = mltable.from_pandas(test_df)
-        test_mltable.save(test_path)
+        _write_mltable_from_dataframe(test_df, test_path, filename="test.parquet")
         test_asset = Data(
             name=settings.registered_test,
             version="1",

@@ -1,0 +1,13 @@
+name: xgb-sweep-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - pandas==2.3.3
+      - numpy==1.26.4
+      - scikit-learn==1.8.0
+      - xgboost==2.1.1
+      - mlflow==3.7.0
+      - azureml-mlflow==1.60.0

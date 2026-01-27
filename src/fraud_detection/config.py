@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     # Dataset settings
     registered_dataset_name: str = Field(default="original-creditcard")
+    registered_dataset_label: str = Field(default="latest")
     local_data_path: Path = Field(default=ROOT_DIR / "data")
     registered_train: str = Field(default="fraud-detection-train-data")
     registered_test: str = Field(default="fraud-detection-test-data")
