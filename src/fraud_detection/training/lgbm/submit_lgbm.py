@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,13 @@ def _metric_check(metric: str) -> str:
     return metric_str
 
 
+def _env_version_from_file(env_file: Path) -> str:
+    if not env_file.exists():
+        return "1.0"
+    digest = hashlib.sha1(env_file.read_bytes()).hexdigest()
+    return digest[:8]
+
+
 @dataclass
 class LGBMSweepConfig:
     experiment_name: str
@@ -94,12 +102,16 @@ def lgbm_sweep_job_builder(
     resolved_metric = _metric_check(metric)
     resolved_settings = settings or get_settings()
     compute_target = compute or resolved_settings.training_compute_cluster_name
-    idempotency_key = build_idempotency_key(resolved_settings.custom_train_exp, resolved_metric)
+    env_file = ROOT_DIR / "src" / "fraud_detection" / "training" / "lgbm" / "lgbm_env.yaml"
+    env_version = _env_version_from_file(env_file)
+    idempotency_key = build_idempotency_key(resolved_settings.custom_train_exp, resolved_metric, env_version)
     return LGBMSweepConfig(
         experiment_name=resolved_settings.custom_train_exp,
         training_data=training_data,
         test_data=test_data,
         compute=compute_target,
+        environment_file=env_file,
+        environment_version=env_version,
         label_column="Class",
         primary_metric=resolved_metric,
         job_name=build_job_name("lgbm-sweep", idempotency_key),
