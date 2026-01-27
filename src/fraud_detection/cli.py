@@ -26,6 +26,12 @@ from fraud_detection.data.data_for_train.data_for_train import (
 )
 from fraud_detection.pipeline.data_pipeline import submit_data_pipeline_job
 from fraud_detection.training.automl import SUPPORTED_CLASSIFICATION_METRICS, automl_job_builder, create_automl_job, submit_job
+from fraud_detection.training.lgbm.submit_lgbm import (
+    create_lgbm_sweep_job,
+    lgbm_sweep_job_builder,
+    resolve_lgbm_environment,
+    submit_lgbm_sweep_job,
+)
 from fraud_detection.training.xgb.submit_xgb import xgb_sweep_job_builder, submit_xgb_sweep_job, resolve_xgb_environment, create_xgb_sweep_job
 from fraud_detection.utils.compute import ensure_training_compute
 from fraud_detection.utils.logging import get_logger
@@ -429,6 +435,53 @@ def train_xgb(
 
     job_name = submit_xgb_sweep_job(ml_client, config)
     typer.echo(f"Submitted XGBoost sweep job: {job_name}")
+
+
+@app.command()
+def train_lgbm(
+    train_data: Annotated[str | None, typer.Option("--train_data", help="Path to the training data file")] = None,
+    test_data: Annotated[str | None, typer.Option("--test_data", help="Path to the testing data file")] = None,
+    metric: Annotated[str, typer.Option("--metric", help="Evaluation metric to use for training")] = "average_precision_score_macro",
+    compute: Annotated[str | None, typer.Option("--compute", help="Compute target for Task")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry_run", help="If set, the training will not be executed")] = False,
+) -> None:
+    """Submit a LightGBM hyperparameter sweep job."""
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    training_data = train_data or settings.registered_train
+    testing_data = test_data or settings.registered_test
+    compute_target = compute or settings.training_compute_cluster_name
+    ensure_training_compute(
+        ml_client,
+        name=compute_target,
+        size=settings.training_compute_cluster_type,
+        min_instances=0,
+        max_instances=settings.training_compute_cluster_node_max_count,
+        idle_time_before_scale_down=settings.compute_idle_time_before_scale_down,
+    )
+
+    try:
+        config = lgbm_sweep_job_builder(
+            training_data=training_data,
+            test_data=testing_data,
+            metric=metric,
+            compute=compute_target,
+            settings=settings,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if dry_run:
+        environment = resolve_lgbm_environment(ml_client, config)
+        job = create_lgbm_sweep_job(config, environment=environment)
+        typer.echo(f"Built LightGBM sweep job: {job.experiment_name}")
+        return
+
+    job_name = submit_lgbm_sweep_job(ml_client, config)
+    typer.echo(f"Submitted LightGBM sweep job: {job_name}")
+
 
 
 def run() -> None:

@@ -1,4 +1,4 @@
-name: xgb-sweep-env
+name: lgbm-sweep-env
 channels:
   - conda-forge
 dependencies:
@@ -11,7 +11,7 @@ dependencies:
       - pandas==2.3.3
       - numpy==1.26.4
       - scikit-learn==1.8.0
-      - xgboost==3.1.2
+      - lightgbm==4.6.0
       - mlflow==3.7.0
       - azureml-mlflow==1.60.0
       - typer==0.20.0

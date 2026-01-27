@@ -1,4 +1,4 @@
-"""Training script for XGBoost."""
+"""Training script for LightGBM."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from typing import Annotated
 import mlflow
 import mltable
 import typer
+from lightgbm import LGBMClassifier
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import train_test_split
-from xgboost import XGBClassifier
 
-from fraud_detection.config import get_git_sha
-from fraud_detection.utils.logging import get_logger
-from fraud_detection.training.automl import resolve_latest_data_version
 from fraud_detection.azure.client import get_ml_client
+from fraud_detection.config import get_git_sha
+from fraud_detection.training.automl import resolve_latest_data_version
+from fraud_detection.utils.logging import get_logger
 
 logger = get_logger(__name__)
 app = typer.Typer()
@@ -29,17 +29,19 @@ def main(
     val_size: Annotated[float, typer.Option("--val_size", help="fraction of TRAIN split used for validation")] = 0.2,
     n_estimators: Annotated[int, typer.Option("--n_estimators")] = 600,
     max_depth: Annotated[int, typer.Option("--max_depth")] = 5,
+    num_leaves: Annotated[int, typer.Option("--num_leaves")] = 31,
     learning_rate: Annotated[float, typer.Option("--learning_rate")] = 0.05,
     subsample: Annotated[float, typer.Option("--subsample")] = 0.8,
     colsample_bytree: Annotated[float, typer.Option("--colsample_bytree")] = 0.8,
     min_child_weight: Annotated[float, typer.Option("--min_child_weight")] = 1.0,
-    gamma: Annotated[float, typer.Option("--gamma")] = 0.0,
+    min_child_samples: Annotated[int, typer.Option("--min_child_samples")] = 20,
+    reg_alpha: Annotated[float, typer.Option("--reg_alpha")] = 0.0,
     reg_lambda: Annotated[float, typer.Option("--reg_lambda")] = 1.0,
     random_state: Annotated[int, typer.Option("--random_state")] = 42,
     dataset_version: Annotated[str | None, typer.Option("--dataset_version")] = None,
     early_stopping_rounds: Annotated[int, typer.Option("--early_stopping_rounds")] = 50,
     output_dir: Annotated[str, typer.Option("--output_dir")] = "outputs",
-    model_name: Annotated[str, typer.Option("--model_name", help="Name to register the model under.")] = "xgboost-fraud-model",
+    model_name: Annotated[str, typer.Option("--model_name", help="Name to register the model under.")] = "lightgbm-fraud-model",
 ) -> None:
     ml_client = get_ml_client()
     resolved_version = dataset_version or resolve_latest_data_version(ml_client, train_data)
@@ -63,25 +65,26 @@ def main(
     n_neg = int((y_train == 0).sum())
     scale_pos_weight = n_neg / max(n_pos, 1)
 
-    model = XGBClassifier(
+    model = LGBMClassifier(
         n_estimators=n_estimators,
         max_depth=max_depth,
+        num_leaves=num_leaves,
         learning_rate=learning_rate,
         subsample=subsample,
         colsample_bytree=colsample_bytree,
         min_child_weight=min_child_weight,
-        gamma=gamma,
+        min_child_samples=min_child_samples,
+        reg_alpha=reg_alpha,
         reg_lambda=reg_lambda,
         scale_pos_weight=scale_pos_weight,
-        objective="binary:logistic",
-        eval_metric="aucpr",
+        objective="binary",
         random_state=random_state,
     )
 
     # Azure ML sweep expects the primary metric name to match EXACTLY what you log.
     if mlflow.active_run() is None:
         mlflow.start_run()
-    
+
     mlflow.set_tag("git_sha", get_git_sha())
     mlflow.set_tag("dataset_version", resolved_version)
 
@@ -89,11 +92,13 @@ def main(
         {
             "n_estimators": n_estimators,
             "max_depth": max_depth,
+            "num_leaves": num_leaves,
             "learning_rate": learning_rate,
             "subsample": subsample,
             "colsample_bytree": colsample_bytree,
             "min_child_weight": min_child_weight,
-            "gamma": gamma,
+            "min_child_samples": min_child_samples,
+            "reg_alpha": reg_alpha,
             "reg_lambda": reg_lambda,
             "scale_pos_weight": scale_pos_weight,
             "random_state": random_state,
@@ -104,6 +109,7 @@ def main(
         X_train,
         y_train,
         eval_set=[(X_val, y_val)],
+        eval_metric="average_precision",
         verbose=False,
         early_stopping_rounds=early_stopping_rounds if early_stopping_rounds > 0 else None,
     )
@@ -117,14 +123,14 @@ def main(
     mlflow.log_metric("average_precision_score_macro", ap)
     mlflow.log_metric("AUC_macro", auc)
 
-    mlflow.sklearn.log_model(
-        sk_model=model,
+    mlflow.lightgbm.log_model(
+        lgb_model=model,
         registered_model_name=model_name,
         artifact_path="model",
     )
 
-    mlflow.sklearn.save_model(
-        sk_model=model,
+    mlflow.lightgbm.save_model(
+        lgb_model=model,
         path=Path(output_dir) / "model",
     )
 
