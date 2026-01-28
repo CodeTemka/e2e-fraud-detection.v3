@@ -8,14 +8,16 @@ from typing import Annotated
 import mlflow
 import mltable
 import typer
+from azure.ai.ml.constants import AssetTypes
+from azure.ai.ml.entities import Model
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
-from fraud_detection.config import get_git_sha
-from fraud_detection.utils.logging import get_logger
-from fraud_detection.training.automl import resolve_latest_data_version
 from fraud_detection.azure.client import get_ml_client
+from fraud_detection.config import get_git_sha
+from fraud_detection.training.automl import resolve_latest_data_version
+from fraud_detection.utils.logging import get_logger
 
 logger = get_logger(__name__)
 app = typer.Typer()
@@ -37,7 +39,6 @@ def main(
     reg_lambda: Annotated[float, typer.Option("--reg_lambda")] = 1.0,
     random_state: Annotated[int, typer.Option("--random_state")] = 42,
     dataset_version: Annotated[str | None, typer.Option("--dataset_version")] = None,
-    early_stopping_rounds: Annotated[int, typer.Option("--early_stopping_rounds")] = 50,
     output_dir: Annotated[str, typer.Option("--output_dir")] = "outputs",
     model_name: Annotated[str, typer.Option("--model_name", help="Name to register the model under.")] = "xgboost-fraud-model",
 ) -> None:
@@ -77,6 +78,8 @@ def main(
         eval_metric="aucpr",
         random_state=random_state,
     )
+    if not hasattr(model, "_estimator_type"):
+        model._estimator_type = "classifier"
 
     # Azure ML sweep expects the primary metric name to match EXACTLY what you log.
     if mlflow.active_run() is None:
@@ -105,7 +108,6 @@ def main(
         y_train,
         eval_set=[(X_val, y_val)],
         verbose=False,
-        early_stopping_rounds=early_stopping_rounds if early_stopping_rounds > 0 else None,
     )
 
     proba_test = model.predict_proba(test_df.drop(columns=[label_col]))[:, 1]
@@ -117,15 +119,17 @@ def main(
     mlflow.log_metric("average_precision_score_macro", ap)
     mlflow.log_metric("AUC_macro", auc)
 
-    mlflow.sklearn.log_model(
-        sk_model=model,
-        registered_model_name=model_name,
-        artifact_path="model",
-    )
+    model_dir = Path(output_dir) / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / "model.json"
+    model.save_model(str(model_path))
 
-    mlflow.sklearn.save_model(
-        sk_model=model,
-        path=Path(output_dir) / "model",
+    ml_client.models.create_or_update(
+        Model(
+            name=model_name,
+            path=str(model_dir),
+            type=AssetTypes.CUSTOM_MODEL,
+        )
     )
 
     mlflow.end_run()

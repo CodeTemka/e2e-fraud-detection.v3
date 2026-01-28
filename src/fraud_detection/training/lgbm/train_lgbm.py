@@ -8,6 +8,8 @@ from typing import Annotated
 import mlflow
 import mltable
 import typer
+from azure.ai.ml.constants import AssetTypes
+from azure.ai.ml.entities import Model
 from lightgbm import LGBMClassifier
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -123,15 +125,17 @@ def main(
     mlflow.log_metric("average_precision_score_macro", ap)
     mlflow.log_metric("AUC_macro", auc)
 
-    mlflow.lightgbm.log_model(
-        lgb_model=model,
-        registered_model_name=model_name,
-        artifact_path="model",
-    )
+    model_dir = Path(output_dir) / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / "model.txt"
+    model.booster_.save_model(str(model_path))
 
-    mlflow.lightgbm.save_model(
-        lgb_model=model,
-        path=Path(output_dir) / "model",
+    ml_client.models.create_or_update(
+        Model(
+            name=model_name,
+            path=str(model_dir),
+            type=AssetTypes.CUSTOM_MODEL,
+        )
     )
 
     mlflow.end_run()

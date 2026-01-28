@@ -20,7 +20,7 @@ from azure.ai.ml.sweep import (
 )
 from azure.core.exceptions import ResourceNotFoundError
 
-from fraud_detection.azure.client import get_ml_client
+from fraud_detection.azure.client import get_ml_client, resolve_azure_env_vars
 from fraud_detection.config import (
     ROOT_DIR,
     Settings,
@@ -54,11 +54,18 @@ def _metric_check(metric: str) -> str:
     return metric_str
 
 
-def _env_version_from_file(env_file: Path) -> str:
+def _env_hash_from_file(env_file: Path) -> str:
     if not env_file.exists():
-        return "1.0"
+        return "missing"
     digest = hashlib.sha1(env_file.read_bytes()).hexdigest()
     return digest[:8]
+
+
+def _parse_env_version(version: str | None) -> int:
+    try:
+        return int(version or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 @dataclass
@@ -69,7 +76,7 @@ class LGBMSweepConfig:
 
     compute: str | None
     environment_name: str = "lgbm-env"
-    environment_version: str = "1.0"
+    environment_version: str | None = None
     environment_file: Path = field(
         default_factory=lambda: ROOT_DIR / "src" / "fraud_detection" / "training" / "lgbm" / "lgbm_env.yaml"
     )
@@ -79,7 +86,7 @@ class LGBMSweepConfig:
     random_state: int = 42
     primary_metric: str = "average_precision_score_macro"
 
-    max_total_trials: int = 30
+    max_total_trials: int = 100
     max_concurrent_trials: int = 2
     timeout_minutes: int = 180
     sampling_algorithm: SamplingAlgorithm = RandomSamplingAlgorithm(seed=999)
@@ -103,15 +110,14 @@ def lgbm_sweep_job_builder(
     resolved_settings = settings or get_settings()
     compute_target = compute or resolved_settings.training_compute_cluster_name
     env_file = ROOT_DIR / "src" / "fraud_detection" / "training" / "lgbm" / "lgbm_env.yaml"
-    env_version = _env_version_from_file(env_file)
-    idempotency_key = build_idempotency_key(resolved_settings.custom_train_exp, resolved_metric, env_version)
+    env_hash = _env_hash_from_file(env_file)
+    idempotency_key = build_idempotency_key(resolved_settings.custom_train_exp, resolved_metric, env_hash)
     return LGBMSweepConfig(
         experiment_name=resolved_settings.custom_train_exp,
         training_data=training_data,
         test_data=test_data,
         compute=compute_target,
         environment_file=env_file,
-        environment_version=env_version,
         label_column="Class",
         primary_metric=resolved_metric,
         job_name=build_job_name("lgbm-sweep", idempotency_key),
@@ -121,6 +127,11 @@ def lgbm_sweep_job_builder(
 
 def resolve_lgbm_environment(ml_client: MLClient, config: LGBMSweepConfig) -> str:
     """Resolve the LightGBM training environment."""
+    if not config.environment_file.exists():
+        raise FileNotFoundError(f"Environment file not found: {config.environment_file}")
+
+    env_hash = _env_hash_from_file(config.environment_file)
+
     if config.environment_version:
         env_id = f"{config.environment_name}:{config.environment_version}"
         try:
@@ -131,19 +142,51 @@ def resolve_lgbm_environment(ml_client: MLClient, config: LGBMSweepConfig) -> st
             logger.info("Using existing LightGBM environment", extra={"environment": env_id})
             return env_id
 
-    if not config.environment_file.exists():
-        raise FileNotFoundError(f"Environment file not found: {config.environment_file}")
+        job_env = Environment(
+            name=config.environment_name,
+            version=config.environment_version,
+            description="LightGBM training environment",
+            conda_file=str(config.environment_file),
+            image=config.environment_image,
+            tags={"env_hash": env_hash},
+        )
+        job_env = ml_client.environments.create_or_update(job_env)
+        env_id = f"{job_env.name}:{job_env.version}"
+        logger.info("Created LightGBM environment", extra={"environment": env_id})
+        return env_id
 
-    env_kwargs: dict[str, str] = {}
-    if config.environment_version:
-        env_kwargs["version"] = config.environment_version
+    matching_version: str | None = None
+    versions: list[str] = []
+    try:
+        envs = list(ml_client.environments.list(name=config.environment_name))
+    except ResourceNotFoundError:
+        logger.info(
+            "LightGBM environment not found; creating a new version",
+            extra={"environment": config.environment_name},
+        )
+        envs = []
 
+    for env in envs:
+        version = str(getattr(env, "version", "") or "")
+        versions.append(version)
+        tags = getattr(env, "tags", None) or {}
+        if tags.get("env_hash") == env_hash:
+            if matching_version is None or _parse_env_version(version) > _parse_env_version(matching_version):
+                matching_version = version
+
+    if matching_version:
+        env_id = f"{config.environment_name}:{matching_version}"
+        logger.info("Using existing LightGBM environment", extra={"environment": env_id})
+        return env_id
+
+    next_version = str(max((_parse_env_version(v) for v in versions), default=0) + 1)
     job_env = Environment(
         name=config.environment_name,
+        version=next_version,
         description="LightGBM training environment",
         conda_file=str(config.environment_file),
         image=config.environment_image,
-        **env_kwargs,
+        tags={"env_hash": env_hash},
     )
     job_env = ml_client.environments.create_or_update(job_env)
     env_id = f"{job_env.name}:{job_env.version}"
@@ -155,6 +198,8 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
     """Create the LightGBM hyperparameter sweep job."""
     if not config.experiment_name:
         raise ValueError("Experiment name must be provided in the configuration.")
+
+    azure_env_vars = resolve_azure_env_vars()
 
     base_job = command(
         code=str(ROOT_DIR / "src"),
@@ -194,6 +239,7 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
         },
         outputs={"model_output": Output(type=AssetTypes.URI_FOLDER)},
         environment=environment,
+        environment_variables=azure_env_vars,
         display_name="lgbm-train",
     )
 
