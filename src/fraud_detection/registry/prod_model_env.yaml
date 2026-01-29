@@ -1,11 +1,18 @@
-name: promote-prod-model-env
+name: prod-model-env
 channels:
   - conda-forge
 dependencies:
-  - python>=3.12,<3.13
+  - python=3.11
   - pip
   - pip:
       - azure-ai-ml==1.30.0
       - azure-identity==1.17.0
       - mlflow==3.7.0
-      - pyyaml==6.0.2
+      - azureml-mlflow==1.60.0
+      - pandas==2.3.3
+      - numpy==1.26.4
+      - mltable==1.6.3
+      - pyarrow==17.0.0
+      - pydantic==2.12.5
+      - pydantic-settings==2.12.0
+      - typer==0.20.0

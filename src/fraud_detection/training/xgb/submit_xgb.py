@@ -86,7 +86,7 @@ class XGBSweepConfig:
     random_state: int = 42
     primary_metric: str = "average_precision_score_macro"
 
-    max_total_trials: int = 100
+    max_total_trials: int = 250
     max_concurrent_trials: int = 2
     timeout_minutes: int = 180
     sampling_algorithm: SamplingAlgorithm = RandomSamplingAlgorithm(seed=999)
