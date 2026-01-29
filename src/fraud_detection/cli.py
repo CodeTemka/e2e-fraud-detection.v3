@@ -33,11 +33,17 @@ from fraud_detection.training.lgbm.submit_lgbm import (
     resolve_lgbm_environment,
     submit_lgbm_sweep_job,
 )
-from fraud_detection.training.xgb.submit_xgb import xgb_sweep_job_builder, submit_xgb_sweep_job, resolve_xgb_environment, create_xgb_sweep_job
+
+from fraud_detection.training.xgb.submit_xgb import (
+    xgb_sweep_job_builder,
+    submit_xgb_sweep_job,
+    resolve_xgb_environment,
+    create_xgb_sweep_job,
+)
 from fraud_detection.utils.compute import ensure_training_compute
 from fraud_detection.utils.logging import get_logger
 from fraud_detection.azure.client import get_ml_client
-from fraud_detection.registry.prod_model import promote_best_model
+
 
 app = typer.Typer(help="Utilities to orchestrate Azure ML jobs")
 logger = get_logger(__name__)
@@ -52,32 +58,6 @@ def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
-
-def _parse_bool(value: str | None, *, default: bool = False) -> bool:
-    if value is None:
-        return default
-    text = value.strip().lower()
-    if not text:
-        return default
-    if text in {"true", "1", "yes", "y"}:
-        return True
-    if text in {"false", "0", "no", "n"}:
-        return False
-    raise typer.BadParameter("Expected a boolean value: true/false")
-
-
-def _normalize_experiments(values: list[str] | None) -> list[str] | None:
-    if not values:
-        return None
-    cleaned: list[str] = []
-    for item in values:
-        if not item:
-            continue
-        for part in str(item).split(","):
-            name = part.strip()
-            if name:
-                cleaned.append(name)
-    return cleaned or None
 
 
 @app.command()
@@ -199,6 +179,7 @@ def validate_data(
     typer.echo("Data validation passed." if is_valid else "Data validation failed.")
 
 
+
 @app.command()
 def prep_data_for_train(
     data_name: Annotated[
@@ -307,6 +288,7 @@ def prep_data_for_train(
     typer.echo("Data preparation for training completed successfully.")
 
 
+
 @app.command()
 def run_data_pipeline(
     data_name: Annotated[
@@ -367,65 +349,6 @@ def run_data_pipeline(
         ml_client.jobs.stream(getattr(job, 'name'))
 
 
-@app.command()
-def run_deployment_pipeline(
-    compare_metric: Annotated[
-        str | None,
-        typer.Option("--compare-metric", help="Metric to compare across runs."),
-    ] = None,
-    experiments: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--experiment",
-            "--experiments",
-            help="Experiment names to compare (repeat or comma-separated).",
-        ),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run/--no-dry-run", help="Skip model registration."),
-    ] = False,
-    component_version: Annotated[
-        str | None,
-        typer.Option("--component-version", help="Version for promotion component."),
-    ] = None,
-    experiment_name: Annotated[
-        str | None,
-        typer.Option("--experiment-name", help="Azure ML experiment name."),
-    ] = None,
-    wait: Annotated[
-        bool,
-        typer.Option("--wait/--no-wait", help="Stream pipeline job logs."),
-    ] = False,
-) -> None:
-    """Run the deployment pipeline with the production model promotion component."""
-    settings = get_settings()
-    ml_client = get_ml_client()
-
-    resolved_metric = compare_metric or settings.default_metric_serving
-    resolved_experiments = _normalize_experiments(experiments)
-    if resolved_experiments:
-        experiments_value = ",".join(resolved_experiments)
-    else:
-        experiments_value = f"{settings.custom_train_exp},{settings.automl_train_exp}"
-
-    try:
-        job = submit_deployment_pipeline_job(
-            compare_metric=resolved_metric,
-            experiments=experiments_value,
-            dry_run=dry_run,
-            component_version=component_version,
-            experiment_name=experiment_name,
-            ml_client=ml_client,
-        )
-    except Exception as exc:
-        logger.exception("Failed to submit deployment pipeline", extra={"experiments": experiments_value})
-        raise typer.BadParameter(str(exc)) from exc
-
-    typer.echo(f"Submitted deployment pipeline job: {getattr(job, 'name', None)}")
-    if wait:
-        ml_client.jobs.stream(getattr(job, 'name'))
-
 
 @app.command()
 def train_automl(
@@ -480,21 +403,24 @@ def train_automl(
     typer.echo(f"Submitted AutoML job: {job_name}")
 
 
+
 @app.command()
 def train_xgb(
-    train_data: Annotated[str | None, typer.Option("--train_data", help="Path to the training data file")] = None,
-    test_data: Annotated[str | None, typer.Option("--test_data", help="Path to the testing data file")] = None,
-    metric: Annotated[str, typer.Option("--metric", help="Evaluation metric to use for training")] = "average_precision_score_macro",
-    compute: Annotated[str | None, typer.Option("--compute", help="Compute target for Task")] = None,
+    train_data: Annotated[str | None, typer.Option("--train_data", help="Registered name of training data asset")] = None,
+    metric: Annotated[
+        str, typer.Option("--metric", help="Evaluation metric to use for sweep (average_precision_score_macro or AUC_macro)")
+    ] = "average_precision_score_macro",
+    val_size: Annotated[float, typer.Option("--val_size", help="Fraction of data used for validation split")] = 0.2,
+    compute: Annotated[str | None, typer.Option("--compute", help="Compute target for task")] = None,
     dry_run: Annotated[bool, typer.Option("--dry_run", help="If set, the training will not be executed")] = False,
 ):
-    """Submit an XGBoost hyperparameter sweep job."""
+    """Submit an XGBoost hyperparameter sweep job (no test_data)."""
     settings = get_settings()
     ml_client = get_ml_client()
 
     training_data = train_data or settings.registered_train
-    testing_data= test_data or settings.registered_test
     compute_target = compute or settings.training_compute_cluster_name
+
     ensure_training_compute(
         ml_client,
         name=compute_target,
@@ -507,8 +433,8 @@ def train_xgb(
     try:
         config = xgb_sweep_job_builder(
             training_data=training_data,
-            test_data=testing_data,
             metric=metric,
+            val_size=val_size,
             compute=compute_target,
             settings=settings,
         )
@@ -526,21 +452,25 @@ def train_xgb(
     typer.echo(f"Submitted XGBoost sweep job: {job_name}")
 
 
+
 @app.command()
 def train_lgbm(
-    train_data: Annotated[str | None, typer.Option("--train_data", help="Path to the training data file")] = None,
-    test_data: Annotated[str | None, typer.Option("--test_data", help="Path to the testing data file")] = None,
-    metric: Annotated[str, typer.Option("--metric", help="Evaluation metric to use for training")] = "average_precision_score_macro",
-    compute: Annotated[str | None, typer.Option("--compute", help="Compute target for Task")] = None,
+    train_data: Annotated[str | None, typer.Option("--train_data", help="Registered name of training data asset")] = None,
+    metric: Annotated[
+        str,
+        typer.Option("--metric", help="Sweep metric (average_precision_score_macro or AUC_macro)"),
+    ] = "average_precision_score_macro",
+    val_size: Annotated[float, typer.Option("--val_size", help="Fraction of data used for validation split")] = 0.2,
+    compute: Annotated[str | None, typer.Option("--compute", help="Compute target for task")] = None,
     dry_run: Annotated[bool, typer.Option("--dry_run", help="If set, the training will not be executed")] = False,
 ) -> None:
-    """Submit a LightGBM hyperparameter sweep job."""
+    """Submit a LightGBM hyperparameter sweep job (no test_data)."""
     settings = get_settings()
     ml_client = get_ml_client()
 
     training_data = train_data or settings.registered_train
-    testing_data = test_data or settings.registered_test
     compute_target = compute or settings.training_compute_cluster_name
+
     ensure_training_compute(
         ml_client,
         name=compute_target,
@@ -553,8 +483,8 @@ def train_lgbm(
     try:
         config = lgbm_sweep_job_builder(
             training_data=training_data,
-            test_data=testing_data,
             metric=metric,
+            val_size=val_size,
             compute=compute_target,
             settings=settings,
         )
@@ -571,55 +501,6 @@ def train_lgbm(
     job_name = submit_lgbm_sweep_job(ml_client, config)
     typer.echo(f"Submitted LightGBM sweep job: {job_name}")
 
-
-@app.command()
-def promote_prod_model(
-    compare_metric: Annotated[
-        str | None,
-        typer.Option("--compare-metric", help="Metric name to compare across runs."),
-    ] = None,
-    experiments: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--experiment",
-            "--experiments",
-            help="Experiment names to compare (repeat or comma-separated).",
-        ),
-    ] = None,
-    dry_run: Annotated[
-        str | None,
-        typer.Option("--dry-run", help="Set to true to skip registration."),
-    ] = None,
-    production_info: Annotated[
-        str | None,
-        typer.Option("--production-info", help="Output path for production model info JSON."),
-    ] = None,
-    new_promotion: Annotated[
-        str | None,
-        typer.Option("--new-promotion", help="Output path for the new promotion flag."),
-    ] = None,
-) -> None:
-    """Compare experiment runs and promote the best model to production."""
-    resolved_metric = compare_metric.strip() if compare_metric else None
-    resolved_experiments = _normalize_experiments(experiments)
-    resolved_dry_run = _parse_bool(dry_run, default=False)
-
-    result = promote_best_model(
-        compare_metric=resolved_metric,
-        experiments=resolved_experiments,
-        dry_run=resolved_dry_run,
-    )
-
-    if production_info:
-        _write_json(Path(production_info), result.as_dict())
-    if new_promotion:
-        _write_text(Path(new_promotion), "true" if result.promoted else "false")
-
-    typer.echo(
-        "Promotion applied."
-        if result.promoted
-        else f"No promotion applied ({result.promotion_reason})."
-    )
 
 
 
