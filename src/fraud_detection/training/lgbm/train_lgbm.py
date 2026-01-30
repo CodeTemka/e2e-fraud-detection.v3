@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 from pathlib import Path
 from typing import Annotated
 
@@ -35,6 +36,54 @@ app = typer.Typer()
 
 def _write_json(path: Path, obj: dict) -> None:
     path.write_text(json.dumps(obj, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _fit_with_early_stopping(
+    model: LGBMClassifier,
+    *,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    feature_columns: list[str],
+    early_stopping_rounds: int,
+):
+    """Fit LightGBM with early stopping across sklearn API versions."""
+    fit_sig = inspect.signature(model.fit)
+    fit_kwargs = {
+        "eval_set": [(X_val[feature_columns], y_val)],
+        "eval_metric": "average_precision",
+    }
+
+    if "callbacks" in fit_sig.parameters:
+        model.fit(
+            X_train[feature_columns],
+            y_train,
+            **fit_kwargs,
+            callbacks=[
+                lgb.early_stopping(stopping_rounds=early_stopping_rounds, verbose=False),
+                lgb.log_evaluation(period=0),
+            ],
+        )
+        return
+
+    if "early_stopping_rounds" in fit_sig.parameters:
+        extra_kwargs = {"early_stopping_rounds": early_stopping_rounds}
+        if "verbose" in fit_sig.parameters:
+            extra_kwargs["verbose"] = False
+        model.fit(
+            X_train[feature_columns],
+            y_train,
+            **fit_kwargs,
+            **extra_kwargs,
+        )
+        return
+
+    logger.warning("Early stopping is not supported by this LightGBM version; training without it.")
+    model.fit(
+        X_train[feature_columns],
+        y_train,
+    )
 
 
 @app.command()
@@ -136,16 +185,14 @@ def main(
         )
 
         # Train with early stopping on validation set.
-        # We use LightGBM callbacks to ensure compatibility across versions.
-        model.fit(
-            X_train[feature_columns],
-            y_train,
-            eval_set=[(X_val[feature_columns], y_val)],
-            eval_metric="average_precision",
-            callbacks=[
-                lgb.early_stopping(stopping_rounds=early_stopping_rounds, verbose=False),
-                lgb.log_evaluation(period=0),
-            ],
+        _fit_with_early_stopping(
+            model,
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            feature_columns=feature_columns,
+            early_stopping_rounds=early_stopping_rounds,
         )
 
         # Best iteration info
@@ -191,7 +238,13 @@ def main(
         )
 
         # Optional: store artifacts in the MLflow run
-        mlflow.log_artifacts(str(model_dir), artifact_path="exported_model")
+        try:
+            mlflow.log_artifacts(str(model_dir), artifact_path="exported_model")
+        except Exception as exc:
+            logger.warning(
+                "Failed to log model artifacts to MLflow; continuing without artifact logging.",
+                extra={"error": str(exc)},
+            )
 
         logger.info(
             "Training complete",

@@ -1,10 +1,18 @@
-"""Submit the LightGBM training sweep job to Azure ML (no test_data).
+"""Submit the XGBoost training sweep job to Azure ML (no test_data).
 
-Aligned with the updated train_lgbm.py:
-- internal train/val split (val_size)
-- early stopping inside training
-- writes deployable artifacts to outputs.model_output/model/*
-- no model registration per trial
+Improvements vs the previous config:
+- Uses random sampling (compatible with LogUniform search spaces)
+- Tightens the search space around historically good runs:
+  - trims extreme regularization / child weight values to avoid underfitting
+  - keeps depth and boosting rounds in the "strong" range
+  - narrows subsample/colsample to exclude overly aggressive values
+  - focuses learning_rate around known-good region
+- Slightly higher default trial budget and concurrency (still safe-ish)
+
+NOTE: This file assumes train_xgb.py accepts:
+  --train_data --label_col --val_size --n_estimators --max_depth --learning_rate
+  --subsample --colsample_bytree --min_child_weight --gamma --reg_lambda
+  --random_state --output_dir
 """
 
 from __future__ import annotations
@@ -18,10 +26,10 @@ from azure.ai.ml import Input, MLClient, Output, command
 from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Environment
 from azure.ai.ml.sweep import (
-    BayesianSamplingAlgorithm,
     Choice,
     LogUniform,
     MedianStoppingPolicy,
+    RandomSamplingAlgorithm,
     SamplingAlgorithm,
     Uniform,
 )
@@ -39,7 +47,7 @@ from fraud_detection.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-SUPPORTED_LGBM_METRICS = {"average_precision_score_macro", "AUC_macro"}
+SUPPORTED_XGB_METRICS = {"average_precision_score_macro", "AUC_macro"}
 
 METRIC_ALIASES = {
     "metrics.average_precision_score_macro": "average_precision_score_macro",
@@ -55,8 +63,8 @@ METRIC_ALIASES = {
 def _metric_check(metric: str) -> str:
     metric_str = (metric or "").strip().replace("-", "_")
     metric_str = METRIC_ALIASES.get(metric_str.lower(), metric_str)
-    if metric_str not in SUPPORTED_LGBM_METRICS:
-        allowed = ", ".join(sorted(SUPPORTED_LGBM_METRICS))
+    if metric_str not in SUPPORTED_XGB_METRICS:
+        allowed = ", ".join(sorted(SUPPORTED_XGB_METRICS))
         raise ValueError(f"Unsupported metric '{metric_str}'. Choose one of: {allowed}")
     return metric_str
 
@@ -75,16 +83,30 @@ def _parse_env_version(version: str | None) -> int:
         return 0
 
 
+def _build_random_sampling_algorithm(seed: int | None = None) -> SamplingAlgorithm:
+    """Create a RandomSamplingAlgorithm compatible across Azure ML SDK versions."""
+    if seed is None:
+        return RandomSamplingAlgorithm()
+    try:
+        return RandomSamplingAlgorithm(seed=seed)
+    except TypeError:
+        logger.warning(
+            "RandomSamplingAlgorithm does not support 'seed' in this SDK; ignoring seed.",
+            extra={"seed": seed},
+        )
+        return RandomSamplingAlgorithm()
+
+
 @dataclass
-class LGBMSweepConfig:
+class XGBSweepConfig:
     experiment_name: str
     training_data: str
 
     compute: str | None
-    environment_name: str = "lgbm-env"
+    environment_name: str = "xgboost-env"
     environment_version: str | None = None
     environment_file: Path = field(
-        default_factory=lambda: ROOT_DIR / "src" / "fraud_detection" / "training" / "lgbm" / "lgbm_env.yaml"
+        default_factory=lambda: ROOT_DIR / "src" / "fraud_detection" / "training" / "xgb" / "xgb_env.yaml"
     )
     environment_image: str = "mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest"
 
@@ -93,10 +115,13 @@ class LGBMSweepConfig:
     val_size: float = 0.2
     primary_metric: str = "average_precision_score_macro"
 
+    # Sweep limits
     max_total_trials: int = 300
     max_concurrent_trials: int = 4
     timeout_minutes: int = 240
-    sampling_algorithm: SamplingAlgorithm = BayesianSamplingAlgorithm(seed=999)
+
+    # LogUniform is only supported by RANDOM; use random sampling for compatibility.
+    sampling_algorithm: SamplingAlgorithm = field(default_factory=lambda: _build_random_sampling_algorithm(seed=999))
 
     early_stopping_delay: int = 8
     early_stopping_interval: int = 2
@@ -105,23 +130,25 @@ class LGBMSweepConfig:
     idempotency_key: str | None = None
 
 
-def lgbm_sweep_job_builder(
+def xgb_sweep_job_builder(
     *,
     training_data: str,
     metric: str = "average_precision_score_macro",
     val_size: float = 0.2,
     compute: str | None = None,
     settings: Settings | None = None,
-) -> LGBMSweepConfig:
+) -> XGBSweepConfig:
     resolved_metric = _metric_check(metric)
     resolved_settings = settings or get_settings()
+
     compute_target = compute or resolved_settings.training_compute_cluster_name
 
-    env_file = ROOT_DIR / "src" / "fraud_detection" / "training" / "lgbm" / "lgbm_env.yaml"
+    env_file = ROOT_DIR / "src" / "fraud_detection" / "training" / "xgb" / "xgb_env.yaml"
     env_hash = _env_hash_from_file(env_file)
+
     idempotency_key = build_idempotency_key(resolved_settings.custom_train_exp, resolved_metric, env_hash)
 
-    return LGBMSweepConfig(
+    return XGBSweepConfig(
         experiment_name=resolved_settings.custom_train_exp,
         training_data=training_data,
         compute=compute_target,
@@ -129,13 +156,13 @@ def lgbm_sweep_job_builder(
         label_column="Class",
         primary_metric=resolved_metric,
         val_size=val_size,
-        job_name=build_job_name("lgbm-sweep", idempotency_key),
+        job_name=build_job_name("xgb-sweep", idempotency_key),
         idempotency_key=idempotency_key,
     )
 
 
-def resolve_lgbm_environment(ml_client: MLClient, config: LGBMSweepConfig) -> str:
-    """Resolve the LightGBM training environment."""
+def resolve_xgb_environment(ml_client: MLClient, config: XGBSweepConfig) -> str:
+    """Resolve the XGBoost training environment id (name:version)."""
     if not config.environment_file.exists():
         raise FileNotFoundError(f"Environment file not found: {config.environment_file}")
 
@@ -145,22 +172,22 @@ def resolve_lgbm_environment(ml_client: MLClient, config: LGBMSweepConfig) -> st
         env_id = f"{config.environment_name}:{config.environment_version}"
         try:
             ml_client.environments.get(name=config.environment_name, version=config.environment_version)
-            logger.info("Using existing LightGBM environment", extra={"environment": env_id})
+            logger.info("Using existing XGBoost environment", extra={"environment": env_id})
             return env_id
         except ResourceNotFoundError:
-            logger.warning("LightGBM environment not found; creating", extra={"environment": env_id})
+            logger.warning("XGBoost environment not found; creating", extra={"environment": env_id})
 
         job_env = Environment(
             name=config.environment_name,
             version=config.environment_version,
-            description="LightGBM training environment",
+            description="XGBoost training environment",
             conda_file=str(config.environment_file),
             image=config.environment_image,
             tags={"env_hash": env_hash},
         )
         job_env = ml_client.environments.create_or_update(job_env)
         env_id = f"{job_env.name}:{job_env.version}"
-        logger.info("Created LightGBM environment", extra={"environment": env_id})
+        logger.info("Created XGBoost environment", extra={"environment": env_id})
         return env_id
 
     matching_version: str | None = None
@@ -176,46 +203,43 @@ def resolve_lgbm_environment(ml_client: MLClient, config: LGBMSweepConfig) -> st
 
     if matching_version:
         env_id = f"{config.environment_name}:{matching_version}"
-        logger.info("Using existing LightGBM environment", extra={"environment": env_id})
+        logger.info("Using existing XGBoost environment", extra={"environment": env_id})
         return env_id
 
     next_version = str(max((_parse_env_version(v) for v in versions), default=0) + 1)
     job_env = Environment(
         name=config.environment_name,
         version=next_version,
-        description="LightGBM training environment",
+        description="XGBoost training environment",
         conda_file=str(config.environment_file),
         image=config.environment_image,
         tags={"env_hash": env_hash},
     )
     job_env = ml_client.environments.create_or_update(job_env)
     env_id = f"{job_env.name}:{job_env.version}"
-    logger.info("Created LightGBM environment", extra={"environment": env_id})
+    logger.info("Created XGBoost environment", extra={"environment": env_id})
     return env_id
 
 
-def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
-    """Create the LightGBM hyperparameter sweep job."""
+def create_xgb_sweep_job(config: XGBSweepConfig, *, environment: str) -> Any:
+    """Create the XGBoost hyperparameter sweep job."""
     azure_env_vars = resolve_azure_env_vars()
 
     base_job = command(
         code=str(ROOT_DIR / "src"),
         command=(
-            "python -m fraud_detection.training.lgbm.train_lgbm "
+            "python -m fraud_detection.training.xgb.train_xgb "
             "--train_data ${{inputs.train_data}} "
             "--label_col ${{inputs.label_col}} "
             "--val_size ${{inputs.val_size}} "
             "--n_estimators ${{inputs.n_estimators}} "
             "--max_depth ${{inputs.max_depth}} "
-            "--num_leaves ${{inputs.num_leaves}} "
             "--learning_rate ${{inputs.learning_rate}} "
             "--subsample ${{inputs.subsample}} "
             "--colsample_bytree ${{inputs.colsample_bytree}} "
             "--min_child_weight ${{inputs.min_child_weight}} "
-            "--min_child_samples ${{inputs.min_child_samples}} "
-            "--reg_alpha ${{inputs.reg_alpha}} "
+            "--gamma ${{inputs.gamma}} "
             "--reg_lambda ${{inputs.reg_lambda}} "
-            "--early_stopping_rounds ${{inputs.early_stopping_rounds}} "
             "--random_state ${{inputs.random_state}} "
             "--output_dir ${{outputs.model_output}}"
         ),
@@ -225,48 +249,48 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
             "val_size": Input(type="number"),
             "n_estimators": Input(type="integer"),
             "max_depth": Input(type="integer"),
-            "num_leaves": Input(type="integer"),
             "learning_rate": Input(type="number"),
             "subsample": Input(type="number"),
             "colsample_bytree": Input(type="number"),
             "min_child_weight": Input(type="number"),
-            "min_child_samples": Input(type="integer"),
-            "reg_alpha": Input(type="number"),
+            "gamma": Input(type="number"),
             "reg_lambda": Input(type="number"),
-            "early_stopping_rounds": Input(type="integer"),
             "random_state": Input(type="integer"),
         },
         outputs={"model_output": Output(type=AssetTypes.URI_FOLDER)},
         environment=environment,
         environment_variables=azure_env_vars,
-        display_name="lgbm-train",
+        display_name="xgb-train",
     )
 
+    # Focused search space (avoid known poor extremes)
     job_for_sweep = base_job(
         train_data=config.training_data,
         label_col=config.label_column,
         val_size=config.val_size,
 
-        # Broader + smoother ranges
-        learning_rate=LogUniform(min_value=5e-4, max_value=0.3),
-        max_depth=Choice(values=[-1, 3, 4, 5, 6, 7, 8, 9, 10]),
+        # Focus learning rate around previously strong runs
+        learning_rate=LogUniform(min_value=0.5, max_value=1.5),
 
-        # Leaves should be consistent with depth-ish; keep a sensible set
-        num_leaves=Choice(values=[31, 63, 127, 255, 511]),
+        # Favor deeper trees that have historically performed best
+        max_depth=Choice(values=[5, 6, 7, 8, 9]),
 
-        # Upper bound; early stopping will cut it down
-        n_estimators=Choice(values=[800, 1500, 2500, 4000, 6000]),
+        # Emphasize higher boosting rounds; early stopping will cut back if needed
+        n_estimators=Choice(values=[800, 1000, 1200, 1400, 1600]),
 
-        subsample=Uniform(min_value=0.5, max_value=1.0),
-        colsample_bytree=Uniform(min_value=0.4, max_value=1.0),
+        # Avoid overly aggressive subsampling / colsampling
+        subsample=Uniform(min_value=0.55, max_value=0.85),
+        colsample_bytree=Uniform(min_value=0.55, max_value=0.85),
 
-        min_child_weight=LogUniform(min_value=1e-4, max_value=50.0),
-        min_child_samples=Choice(values=[5, 10, 20, 50, 100, 200]),
+        # Exclude very large child weights that underfit
+        min_child_weight=LogUniform(min_value=0.5, max_value=10.0),
 
-        reg_alpha=LogUniform(min_value=1e-6, max_value=10.0),
-        reg_lambda=LogUniform(min_value=1e-4, max_value=100.0),
+        # Keep gamma in a low-to-moderate range
+        gamma=LogUniform(min_value=0.05, max_value=2.0),
 
-        early_stopping_rounds=Choice(values=[50, 100, 200]),
+        # Cap L2 regularization to avoid excessive shrinkage
+        reg_lambda=LogUniform(min_value=1.0, max_value=2000.0),
+
         random_state=config.random_state,
     )
 
@@ -288,7 +312,7 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
         evaluation_interval=config.early_stopping_interval,
     )
 
-    sweep_job.display_name = "lgbm-sweep"
+    sweep_job.display_name = "xgb-sweep"
     sweep_job.experiment_name = config.experiment_name
     if config.job_name:
         sweep_job.name = config.job_name
@@ -296,7 +320,7 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
     return sweep_job
 
 
-def submit_lgbm_sweep_job(ml_client: MLClient, config: LGBMSweepConfig) -> str:
+def submit_xgb_sweep_job(ml_client: MLClient, config: XGBSweepConfig) -> str:
     if config.job_name:
         try:
             existing = ml_client.jobs.get(config.job_name)
@@ -307,18 +331,18 @@ def submit_lgbm_sweep_job(ml_client: MLClient, config: LGBMSweepConfig) -> str:
             status = str(getattr(existing, "status", "") or "").lower()
             if status in {"failed", "canceled", "cancelled", "error"}:
                 logger.warning(
-                    "Existing LightGBM sweep job failed; submitting a new run",
+                    "Existing XGBoost sweep job failed; submitting a new run",
                     extra={"job_name": existing.name, "status": status},
                 )
                 config.job_name = None
             else:
-                logger.info("Existing LightGBM sweep job reused", extra={"job_name": existing.name, "status": status})
+                logger.info("Existing XGBoost sweep job reused", extra={"job_name": existing.name, "status": status})
                 return str(getattr(existing, "name"))
 
-    environment = resolve_lgbm_environment(ml_client, config)
-    sweep_job = create_lgbm_sweep_job(config, environment=environment)
+    environment = resolve_xgb_environment(ml_client, config)
+    sweep_job = create_xgb_sweep_job(config, environment=environment)
     returned_job = ml_client.jobs.create_or_update(sweep_job)
-    logger.info("Submitting LightGBM sweep job", extra={"job_name": returned_job.name})
+    logger.info("Submitting XGBoost sweep job", extra={"job_name": returned_job.name})
     return str(getattr(returned_job, "name"))
 
 
@@ -327,17 +351,24 @@ def main() -> None:
     ml_client = get_ml_client(settings=settings)
 
     training_data = settings.registered_train
-    config = lgbm_sweep_job_builder(training_data=training_data, settings=settings)
-    job_name = submit_lgbm_sweep_job(ml_client, config)
-    logger.info("LightGBM sweep job submitted", extra={"job_name": job_name})
+
+    config = xgb_sweep_job_builder(
+        training_data=training_data,
+        settings=settings,
+        metric="average_precision_score_macro",
+        val_size=0.2,
+    )
+
+    job_name = submit_xgb_sweep_job(ml_client, config)
+    logger.info("XGBoost sweep job submitted", extra={"job_name": job_name})
 
 
 __all__ = [
-    "LGBMSweepConfig",
-    "lgbm_sweep_job_builder",
-    "resolve_lgbm_environment",
-    "create_lgbm_sweep_job",
-    "submit_lgbm_sweep_job",
+    "XGBSweepConfig",
+    "xgb_sweep_job_builder",
+    "resolve_xgb_environment",
+    "create_xgb_sweep_job",
+    "submit_xgb_sweep_job",
 ]
 
 

@@ -40,6 +40,7 @@ from fraud_detection.training.xgb.submit_xgb import (
     resolve_xgb_environment,
     create_xgb_sweep_job,
 )
+from fraud_detection.registry.prod_model import register_prod_model
 from fraud_detection.utils.compute import ensure_training_compute
 from fraud_detection.utils.logging import get_logger
 from fraud_detection.azure.client import get_ml_client
@@ -57,6 +58,14 @@ def _write_json(path: Path, payload: dict[str, object] | list[dict[str, object]]
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _parse_bool(value: str | bool | None) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 
@@ -502,6 +511,138 @@ def train_lgbm(
     typer.echo(f"Submitted LightGBM sweep job: {job_name}")
 
 
+
+@app.command("promote-prod-model")
+def promote_prod_model(
+    compare_metric: Annotated[
+        str | None,
+        typer.Option(
+            "--compare-metric",
+            help="Metric to compare when selecting the production model.",
+        ),
+    ] = None,
+    experiments: Annotated[
+        str | None,
+        typer.Option(
+            "--experiments",
+            help="Comma-separated experiment names to search for best runs.",
+        ),
+    ] = None,
+    dry_run: Annotated[
+        str | None,
+        typer.Option(
+            "--dry-run",
+            help="Set to true to skip model registration (decision only).",
+        ),
+    ] = None,
+    production_info: Annotated[
+        str | None,
+        typer.Option(
+            "--production-info",
+            help="Output path for promotion metadata JSON.",
+        ),
+    ] = None,
+    new_promotion: Annotated[
+        str | None,
+        typer.Option(
+            "--new-promotion",
+            help="Output path for promotion flag ('true'/'false').",
+        ),
+    ] = None,
+) -> None:
+    """Compare experiment runs and promote the best model to production."""
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    resolved_metric = compare_metric or settings.default_metric_serving
+    dry_run_flag = _parse_bool(dry_run)
+
+    try:
+        result = register_prod_model(
+            resolved_metric,
+            experiments=experiments,
+            dry_run=dry_run_flag,
+            ml_client=ml_client,
+            settings=settings,
+        )
+    except Exception as exc:
+        logger.exception("Production model promotion failed", extra={"metric": resolved_metric})
+        raise typer.BadParameter(str(exc)) from exc
+
+    if production_info:
+        _write_json(Path(production_info), result.to_dict())
+    if new_promotion:
+        _write_text(Path(new_promotion), "true" if result.decision == "promote" else "false")
+
+    typer.echo(f"Promotion decision: {result.decision}")
+
+
+
+@app.command("run-deployment-pipeline")
+def run_deployment_pipeline(
+    compare_metric: Annotated[
+        str | None,
+        typer.Option(
+            "--compare-metric",
+            help="Metric to compare when selecting the production model.",
+        ),
+    ] = None,
+    experiments: Annotated[
+        str | None,
+        typer.Option(
+            "--experiments",
+            help="Comma-separated experiment names to search for best runs.",
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run/--no-dry-run",
+            help="If set, evaluate promotion without registering a model.",
+        ),
+    ] = False,
+    component_version: Annotated[
+        str | None,
+        typer.Option(
+            "--component-version",
+            help="Specific component version to use (optional).",
+        ),
+    ] = None,
+    experiment_name: Annotated[
+        str | None,
+        typer.Option(
+            "--experiment-name",
+            help="Azure ML experiment name for the pipeline job.",
+        ),
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait/--no-wait",
+            help="Stream pipeline job logs.",
+        ),
+    ] = False,
+) -> None:
+    """Submit the deployment pipeline job to test the production model component."""
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    try:
+        job = submit_deployment_pipeline_job(
+            compare_metric=compare_metric or settings.default_metric_serving,
+            experiments=experiments,
+            dry_run=dry_run,
+            component_version=component_version,
+            experiment_name=experiment_name,
+            ml_client=ml_client,
+        )
+    except Exception as exc:
+        logger.exception("Failed to submit deployment pipeline", extra={"metric": compare_metric})
+        raise typer.BadParameter(str(exc)) from exc
+
+    typer.echo(f"Submitted deployment pipeline job: {getattr(job, 'name', None)}")
+    if wait:
+        ml_client.jobs.stream(getattr(job, "name"))
 
 
 def run() -> None:

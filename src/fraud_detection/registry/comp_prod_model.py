@@ -8,7 +8,7 @@ from azure.ai.ml import MLClient, Input, Output, command
 from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Environment
 
-from fraud_detection.azure.client import get_ml_client
+from fraud_detection.azure.client import get_ml_client, resolve_azure_env_vars
 from fraud_detection.config import ROOT_DIR, get_settings
 from fraud_detection.utils.logging import get_logger
 from fraud_detection.utils.versioning import (
@@ -41,6 +41,7 @@ def create_command():
     env = create_environment(ml_client)
     component_version = resolve_next_component_version(ml_client, name="promote_prod_model")
     settings = get_settings()
+    azure_env_vars = resolve_azure_env_vars(settings=settings)
 
     prod_component = command(
         name="promote_prod_model",
@@ -51,7 +52,7 @@ def create_command():
             "compare_metric": Input(type="string", default=settings.default_metric_serving),
             "experiments": Input(
                 type="string",
-                default=f"{settings.automl_train_exp},{settings.custom_train_exp}",
+                default=f"{settings.custom_train_exp},{settings.automl_train_exp}",
             ),
             "dry_run": Input(type="string", default="false"),
         },
@@ -60,6 +61,7 @@ def create_command():
             "new_promotion": Output(type=AssetTypes.URI_FILE),
         },
         environment=f"{env.name}:{env.version}",
+        environment_variables=azure_env_vars,
         code=ROOT_DIR / "src",
         command=(
             "PYTHONPATH=. python -m fraud_detection.cli promote-prod-model "

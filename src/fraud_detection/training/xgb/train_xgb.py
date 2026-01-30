@@ -13,15 +13,18 @@
 from __future__ import annotations
 
 import json
+import inspect
 from pathlib import Path
 from typing import Annotated
 
 import mlflow
 import mltable
 import typer
+import xgboost as xgb
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
+from xgboost.callback import EarlyStopping
 
 from fraud_detection.azure.client import get_ml_client
 from fraud_detection.config import get_git_sha
@@ -34,6 +37,74 @@ app = typer.Typer()
 
 def _write_json(path: Path, obj: dict) -> None:
     path.write_text(json.dumps(obj, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _train_with_early_stopping(
+    model: XGBClassifier,
+    *,
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    feature_columns: list[str],
+    early_stopping_rounds: int,
+    n_estimators: int,
+    random_state: int,
+):
+    """Train with early stopping across XGBoost sklearn API changes."""
+    fit_sig = inspect.signature(model.fit)
+    fit_kwargs = {
+        "eval_set": [(X_val[feature_columns], y_val)],
+        "verbose": False,
+    }
+
+    if "early_stopping_rounds" in fit_sig.parameters:
+        model.fit(
+            X_train[feature_columns],
+            y_train,
+            **fit_kwargs,
+            early_stopping_rounds=early_stopping_rounds,
+        )
+        return model, "sklearn"
+
+    if "callbacks" in fit_sig.parameters:
+        model.fit(
+            X_train[feature_columns],
+            y_train,
+            **fit_kwargs,
+            callbacks=[EarlyStopping(rounds=early_stopping_rounds, save_best=True)],
+        )
+        return model, "sklearn"
+
+    # Fall back to xgboost.train when sklearn fit doesn't support early stopping.
+    params = model.get_xgb_params()
+    if "random_state" in params and "seed" not in params:
+        params["seed"] = params.pop("random_state")
+    params.setdefault("seed", random_state)
+
+    dtrain = xgb.DMatrix(X_train[feature_columns], label=y_train.astype(int))
+    dval = xgb.DMatrix(X_val[feature_columns], label=y_val.astype(int))
+
+    try:
+        booster = xgb.train(
+            params=params,
+            dtrain=dtrain,
+            num_boost_round=n_estimators,
+            evals=[(dval, "validation")],
+            early_stopping_rounds=early_stopping_rounds,
+            verbose_eval=False,
+        )
+    except TypeError:
+        logger.warning("Early stopping not supported in this XGBoost version; training without it.")
+        booster = xgb.train(
+            params=params,
+            dtrain=dtrain,
+            num_boost_round=n_estimators,
+            evals=[(dval, "validation")],
+            verbose_eval=False,
+        )
+
+    return booster, "booster"
 
 
 @app.command()
@@ -136,22 +207,34 @@ def main(
             }
         )
 
-        # Train with early stopping on the validation set
-        model.fit(
-            X_train[feature_columns],
-            y_train,
-            eval_set=[(X_val[feature_columns], y_val)],
-            verbose=False,
+        # Train with early stopping on the validation set.
+        trained_model, train_backend = _train_with_early_stopping(
+            model,
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            feature_columns=feature_columns,
             early_stopping_rounds=early_stopping_rounds,
+            n_estimators=n_estimators,
+            random_state=random_state,
         )
 
         # best_iteration is 0-based (number of boosting rounds - 1)
-        best_iter = int(getattr(model, "best_iteration", -1))
+        raw_best_iter = getattr(trained_model, "best_iteration", -1)
+        try:
+            best_iter = int(raw_best_iter if raw_best_iter is not None else -1)
+        except (TypeError, ValueError):
+            best_iter = -1
         # best_score is model.best_score (depends on eval_metric)
-        best_score = getattr(model, "best_score", None)
+        best_score = getattr(trained_model, "best_score", None)
 
         # Compute the sweep metrics on validation data
-        proba_val = model.predict_proba(X_val[feature_columns])[:, 1]
+        if train_backend == "booster":
+            dval = xgb.DMatrix(X_val[feature_columns])
+            proba_val = trained_model.predict(dval)
+        else:
+            proba_val = trained_model.predict_proba(X_val[feature_columns])[:, 1]
         ap = average_precision_score(y_val, proba_val)
         auc = roc_auc_score(y_val, proba_val)
 
@@ -180,7 +263,7 @@ def main(
         model_dir.mkdir(parents=True, exist_ok=True)
 
         model_path = model_dir / "model.json"
-        model.save_model(str(model_path))
+        trained_model.save_model(str(model_path))
 
         _write_json(model_dir / "feature_columns.json", {"feature_columns": feature_columns})
 
@@ -203,7 +286,13 @@ def main(
         )
 
         # Optional: store artifacts inside the MLflow run for traceability
-        mlflow.log_artifacts(str(model_dir), artifact_path="exported_model")
+        try:
+            mlflow.log_artifacts(str(model_dir), artifact_path="exported_model")
+        except Exception as exc:
+            logger.warning(
+                "Failed to log model artifacts to MLflow; continuing without artifact logging.",
+                extra={"error": str(exc)},
+            )
 
         logger.info(
             "Training complete",

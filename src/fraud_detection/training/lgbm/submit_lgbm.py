@@ -1,4 +1,8 @@
-"""Submit the LightGBM training job to Azure ML."""
+"""Submit the LightGBM training job to Azure ML.
+
+Sweep ranges are tuned to recent best-performing runs to avoid wasting trials
+on clearly underperforming regions.
+"""
 
 from __future__ import annotations
 
@@ -243,20 +247,21 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
         display_name="lgbm-train",
     )
 
+    # Focused search space (avoid known poor extremes)
     job_for_sweep = base_job(
         train_data=config.training_data,
         test_data=config.test_data,
         label_col=config.label_column,
-        learning_rate=LogUniform(min_value=1e-3, max_value=0.2),
-        max_depth=Choice(values=[3, 4, 5, 6, 7, 8]),
-        num_leaves=Choice(values=[31, 63, 127, 255]),
-        n_estimators=Choice(values=[300, 600, 900, 1200]),
-        subsample=Uniform(min_value=0.6, max_value=1.0),
-        colsample_bytree=Uniform(min_value=0.6, max_value=1.0),
-        min_child_weight=LogUniform(min_value=1e-3, max_value=10.0),
-        min_child_samples=Choice(values=[10, 20, 50, 100]),
-        reg_alpha=LogUniform(min_value=1e-3, max_value=10.0),
-        reg_lambda=LogUniform(min_value=1e-3, max_value=10.0),
+        learning_rate=LogUniform(min_value=0.5, max_value=1.5),
+        max_depth=Choice(values=[6, 7, 8, 9, 10]),
+        num_leaves=Choice(values=[31, 63]),
+        n_estimators=Choice(values=[800, 1000, 1200, 1400, 1600]),
+        subsample=Uniform(min_value=0.6, max_value=0.85),
+        colsample_bytree=Uniform(min_value=0.6, max_value=0.85),
+        min_child_weight=LogUniform(min_value=5.0, max_value=50.0),
+        min_child_samples=Choice(values=[50, 75, 100, 150]),
+        reg_alpha=LogUniform(min_value=1.0, max_value=100.0),
+        reg_lambda=LogUniform(min_value=1e3, max_value=5e4),
         random_state=config.random_state,
     )
 
