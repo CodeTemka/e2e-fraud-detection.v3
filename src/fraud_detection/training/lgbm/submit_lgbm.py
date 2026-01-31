@@ -76,7 +76,6 @@ def _parse_env_version(version: str | None) -> int:
 class LGBMSweepConfig:
     experiment_name: str
     training_data: str
-    test_data: str
 
     compute: str | None
     environment_name: str = "lgbm-env"
@@ -88,11 +87,12 @@ class LGBMSweepConfig:
 
     label_column: str = "Class"
     random_state: int = 42
+    val_size: float = 0.2
     primary_metric: str = "average_precision_score_macro"
 
     max_total_trials: int = 250
-    max_concurrent_trials: int = 2
-    timeout_minutes: int = 180
+    max_concurrent_trials: int = 3
+    timeout_minutes: int = 300
     sampling_algorithm: SamplingAlgorithm = RandomSamplingAlgorithm(seed=999)
 
     early_stopping_delay: int = 5
@@ -100,14 +100,18 @@ class LGBMSweepConfig:
 
     job_name: str | None = None
     idempotency_key: str | None = None
+    run_suffix: str | None = None
+    force_new_run: bool = False
 
 
 def lgbm_sweep_job_builder(
     *,
     training_data: str,
-    test_data: str,
     metric: str = "average_precision_score_macro",
+    val_size: float = 0.2,
     compute: str | None = None,
+    run_suffix: str | None = None,
+    force_new_run: bool = False,
     settings: Settings | None = None,
 ) -> LGBMSweepConfig:
     resolved_metric = _metric_check(metric)
@@ -116,16 +120,24 @@ def lgbm_sweep_job_builder(
     env_file = ROOT_DIR / "src" / "fraud_detection" / "training" / "lgbm" / "lgbm_env.yaml"
     env_hash = _env_hash_from_file(env_file)
     idempotency_key = build_idempotency_key(resolved_settings.custom_train_exp, resolved_metric, env_hash)
+    suffix = (run_suffix or "").strip()
+    job_name = build_job_name("lgbm-sweep", idempotency_key)
+    if suffix:
+        job_name = f"{job_name}-{suffix}"
+    if force_new_run:
+        job_name = None
     return LGBMSweepConfig(
         experiment_name=resolved_settings.custom_train_exp,
         training_data=training_data,
-        test_data=test_data,
         compute=compute_target,
         environment_file=env_file,
         label_column="Class",
+        val_size=val_size,
         primary_metric=resolved_metric,
-        job_name=build_job_name("lgbm-sweep", idempotency_key),
+        job_name=job_name,
         idempotency_key=idempotency_key,
+        run_suffix=suffix or None,
+        force_new_run=force_new_run,
     )
 
 
@@ -210,8 +222,8 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
         command=(
             "python -m fraud_detection.training.lgbm.train_lgbm "
             "--train_data ${{inputs.train_data}} "
-            "--test_data ${{inputs.test_data}} "
             "--label_col ${{inputs.label_col}} "
+            "--val_size ${{inputs.val_size}} "
             "--n_estimators ${{inputs.n_estimators}} "
             "--max_depth ${{inputs.max_depth}} "
             "--num_leaves ${{inputs.num_leaves}} "
@@ -227,8 +239,8 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
         ),
         inputs={
             "train_data": Input(type="string"),
-            "test_data": Input(type="string"),
             "label_col": Input(type="string"),
+            "val_size": Input(type="number"),
             "n_estimators": Input(type="integer"),
             "max_depth": Input(type="integer"),
             "num_leaves": Input(type="integer"),
@@ -250,18 +262,18 @@ def create_lgbm_sweep_job(config: LGBMSweepConfig, *, environment: str) -> Any:
     # Focused search space (avoid known poor extremes)
     job_for_sweep = base_job(
         train_data=config.training_data,
-        test_data=config.test_data,
         label_col=config.label_column,
-        learning_rate=LogUniform(min_value=0.5, max_value=1.5),
+        val_size=config.val_size,
+        learning_rate=Uniform(min_value=0.5, max_value=1.5),
         max_depth=Choice(values=[6, 7, 8, 9, 10]),
         num_leaves=Choice(values=[31, 63]),
         n_estimators=Choice(values=[800, 1000, 1200, 1400, 1600]),
         subsample=Uniform(min_value=0.6, max_value=0.85),
         colsample_bytree=Uniform(min_value=0.6, max_value=0.85),
-        min_child_weight=LogUniform(min_value=5.0, max_value=50.0),
+        min_child_weight=Uniform(min_value=5.0, max_value=50.0),
         min_child_samples=Choice(values=[50, 75, 100, 150]),
-        reg_alpha=LogUniform(min_value=1.0, max_value=100.0),
-        reg_lambda=LogUniform(min_value=1e3, max_value=5e4),
+        reg_alpha=Uniform(min_value=1.0, max_value=100.0),
+        reg_lambda=Uniform(min_value=1e3, max_value=5e4),
         random_state=config.random_state,
     )
 
@@ -320,10 +332,8 @@ def main() -> None:
     ml_client = get_ml_client(settings=settings)
 
     training_data = settings.registered_train
-    test_data = settings.registered_test
     config = lgbm_sweep_job_builder(
         training_data=training_data,
-        test_data=test_data,
         settings=settings,
     )
     job_name = submit_lgbm_sweep_job(ml_client, config)

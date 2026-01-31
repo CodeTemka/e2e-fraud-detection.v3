@@ -1,7 +1,7 @@
 """Submit the XGBoost training sweep job to Azure ML (no test_data).
 
 Improvements vs the previous config:
-- Uses random sampling (compatible with LogUniform search spaces)
+- Uses random sampling for stable coverage of continuous ranges
 - Tightens the search space around historically good runs:
   - trims extreme regularization / child weight values to avoid underfitting
   - keeps depth and boosting rounds in the "strong" range
@@ -27,7 +27,6 @@ from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Environment
 from azure.ai.ml.sweep import (
     Choice,
-    LogUniform,
     MedianStoppingPolicy,
     RandomSamplingAlgorithm,
     SamplingAlgorithm,
@@ -117,10 +116,10 @@ class XGBSweepConfig:
 
     # Sweep limits
     max_total_trials: int = 300
-    max_concurrent_trials: int = 4
-    timeout_minutes: int = 240
+    max_concurrent_trials: int = 3
+    timeout_minutes: int = 300
 
-    # LogUniform is only supported by RANDOM; use random sampling for compatibility.
+    # Use random sampling for compatibility across SDK versions.
     sampling_algorithm: SamplingAlgorithm = field(default_factory=lambda: _build_random_sampling_algorithm(seed=999))
 
     early_stopping_delay: int = 8
@@ -128,6 +127,8 @@ class XGBSweepConfig:
 
     job_name: str | None = None
     idempotency_key: str | None = None
+    run_suffix: str | None = None
+    force_new_run: bool = False
 
 
 def xgb_sweep_job_builder(
@@ -136,6 +137,8 @@ def xgb_sweep_job_builder(
     metric: str = "average_precision_score_macro",
     val_size: float = 0.2,
     compute: str | None = None,
+    run_suffix: str | None = None,
+    force_new_run: bool = False,
     settings: Settings | None = None,
 ) -> XGBSweepConfig:
     resolved_metric = _metric_check(metric)
@@ -147,6 +150,12 @@ def xgb_sweep_job_builder(
     env_hash = _env_hash_from_file(env_file)
 
     idempotency_key = build_idempotency_key(resolved_settings.custom_train_exp, resolved_metric, env_hash)
+    suffix = (run_suffix or "").strip()
+    job_name = build_job_name("xgb-sweep", idempotency_key)
+    if suffix:
+        job_name = f"{job_name}-{suffix}"
+    if force_new_run:
+        job_name = None
 
     return XGBSweepConfig(
         experiment_name=resolved_settings.custom_train_exp,
@@ -156,8 +165,10 @@ def xgb_sweep_job_builder(
         label_column="Class",
         primary_metric=resolved_metric,
         val_size=val_size,
-        job_name=build_job_name("xgb-sweep", idempotency_key),
+        job_name=job_name,
         idempotency_key=idempotency_key,
+        run_suffix=suffix or None,
+        force_new_run=force_new_run,
     )
 
 
@@ -270,26 +281,26 @@ def create_xgb_sweep_job(config: XGBSweepConfig, *, environment: str) -> Any:
         val_size=config.val_size,
 
         # Focus learning rate around previously strong runs
-        learning_rate=LogUniform(min_value=0.5, max_value=1.5),
+        learning_rate=Uniform(min_value=0.02, max_value=0.2),
 
         # Favor deeper trees that have historically performed best
-        max_depth=Choice(values=[5, 6, 7, 8, 9]),
+        max_depth=Choice(values=[4, 5, 6, 7, 8]),
 
         # Emphasize higher boosting rounds; early stopping will cut back if needed
-        n_estimators=Choice(values=[800, 1000, 1200, 1400, 1600]),
+        n_estimators=Choice(values=[600, 800, 1000, 1200, 1400, 1600]),
 
         # Avoid overly aggressive subsampling / colsampling
-        subsample=Uniform(min_value=0.55, max_value=0.85),
-        colsample_bytree=Uniform(min_value=0.55, max_value=0.85),
+        subsample=Uniform(min_value=0.65, max_value=0.9),
+        colsample_bytree=Uniform(min_value=0.65, max_value=0.9),
 
         # Exclude very large child weights that underfit
-        min_child_weight=LogUniform(min_value=0.5, max_value=10.0),
+        min_child_weight=Uniform(min_value=1.0, max_value=12.0),
 
         # Keep gamma in a low-to-moderate range
-        gamma=LogUniform(min_value=0.05, max_value=2.0),
+        gamma=Uniform(min_value=0.0, max_value=2.0),
 
         # Cap L2 regularization to avoid excessive shrinkage
-        reg_lambda=LogUniform(min_value=1.0, max_value=2000.0),
+        reg_lambda=Uniform(min_value=0.5, max_value=100.0),
 
         random_state=config.random_state,
     )

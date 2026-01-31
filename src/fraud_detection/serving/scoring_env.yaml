@@ -1,0 +1,16 @@
+name: fraud-scoring-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - numpy==1.26.4
+      - pandas==2.3.3
+      - scikit-learn==1.8.0
+      - joblib==1.4.2
+      - xgboost==2.1.1
+      - lightgbm==4.6.0
+      - mlflow==3.7.0
+      - pyyaml==6.0.2
+      - azureml-inference-server-http==0.8.4

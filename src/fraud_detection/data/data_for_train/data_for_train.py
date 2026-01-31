@@ -14,8 +14,10 @@ from sklearn.preprocessing import RobustScaler
 from azure.ai.ml import MLClient
 from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Data
+from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 
 from fraud_detection.utils.logging import get_logger
+from fraud_detection.utils.versioning import next_version
 from fraud_detection.config import get_settings
 from fraud_detection.data.data_val.data_validate import (
     DEFAULT_AMOUNT_COLUMN,
@@ -65,7 +67,7 @@ def split_data(
     df: pd.DataFrame,
     *,
     label_col: str = DEFAULT_LABEL_COLUMN,
-    test: float = 0.2,
+    test: float = 0.1,
     seed: int = 42,
     stratify: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -135,6 +137,44 @@ def _write_mltable_from_dataframe(df: pd.DataFrame, output_dir: Path, *, filenam
     mltable_path.write_text(mltable_contents, encoding="utf-8")
 
 
+def _list_data_versions(ml_client: MLClient, *, name: str) -> list[str]:
+    try:
+        return [str(getattr(asset, "version", "")) for asset in ml_client.data.list(name=name)]
+    except ResourceNotFoundError:
+        return []
+
+
+def _register_data_asset(
+    ml_client: MLClient,
+    *,
+    name: str,
+    asset_type: str,
+    path: str,
+    description: str,
+) -> Data:
+    existing_versions = _list_data_versions(ml_client, name=name)
+
+    for _ in range(3):
+        version = next_version(existing_versions, base_version="1")
+        candidate = Data(
+            name=name,
+            version=version,
+            type=asset_type,
+            path=path,
+            description=description,
+        )
+        try:
+            return ml_client.data.create_or_update(candidate)
+        except HttpResponseError as exc:
+            message = str(exc)
+            if "DataVersionPropertyImmutable" in message or "already exists" in message:
+                existing_versions = _list_data_versions(ml_client, name=name)
+                continue
+            raise
+
+    raise RuntimeError(f"Failed to register data asset '{name}' after multiple attempts.")
+
+
 def save_outputs(
     ml_client: MLClient, 
     *,
@@ -145,7 +185,7 @@ def save_outputs(
     metadata_output: str | Path,
     label_col: str = DEFAULT_LABEL_COLUMN,
     seed: int = 42,
-    split_ratio: float = 0.2,
+    split_ratio: float = 0.1,
 ) -> dict:
     """Register train/test data into Azure ML and save scalers and metadata to the provided output locations."""
     settings = get_settings()
@@ -174,34 +214,49 @@ def save_outputs(
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
+    scalers_asset = _register_data_asset(
+        ml_client,
+        name=settings.serving_scalers_name,
+        asset_type=AssetTypes.URI_FOLDER,
+        path=str(scalers_dir),
+        description="Scalers for fraud detection serving",
+    )
+    logger.info(
+        "Registered scalers asset",
+        extra={"data": f"{scalers_asset.name}:{scalers_asset.version}"},
+    )
+
+    metadata["scalers_asset"] = {
+        "name": scalers_asset.name,
+        "version": str(scalers_asset.version),
+    }
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         train_path = tmp_path / "train_mltable"
         test_path = tmp_path / "test_mltable"
 
         _write_mltable_from_dataframe(train_df, train_path, filename="train.parquet")
-        train_asset = Data(
+        train_asset = _register_data_asset(
+            ml_client,
             name=settings.registered_train,
-            version="1",
-            type=AssetTypes.MLTABLE,
+            asset_type=AssetTypes.MLTABLE,
             path=str(train_path),
             description="Training data for fraud detection model",
         )
-        train_asset = ml_client.data.create_or_update(train_asset)
         logger.info(
             "Registered training data",
             extra={"data": f"{train_asset.name}:{train_asset.version}"},
         )
 
         _write_mltable_from_dataframe(test_df, test_path, filename="test.parquet")
-        test_asset = Data(
+        test_asset = _register_data_asset(
+            ml_client,
             name=settings.registered_test,
-            version="1",
-            type=AssetTypes.MLTABLE,
+            asset_type=AssetTypes.MLTABLE,
             path=str(test_path),
             description="Testing data for fraud detection model",
         )
-        test_asset = ml_client.data.create_or_update(test_asset)
         logger.info(
             "Registered testing data",
             extra={"data": f"{test_asset.name}:{test_asset.version}"},

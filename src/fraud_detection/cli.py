@@ -3,51 +3,40 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Annotated, cast
 
 import typer
 
 from fraud_detection.config import get_settings
-from fraud_detection.data.data_val.data_validate import (
-    DEFAULT_CLASS_RATIO_BOUNDS,
-    DEFAULT_LABEL_COLUMN,
-    REQUIRED_COLUMNS,
-    load_from_mltable,
-    validate_data as validate_dataframe,
-)
-from fraud_detection.data.data_for_train.data_for_train import (
-    fit_scalers,
-    read_is_valid_flag,
-    save_outputs,
-    split_data,
-    transform_with_scalers,
-    write_validation_failure_metadata,
-)
-from fraud_detection.pipeline.data_pipeline import submit_data_pipeline_job
-from fraud_detection.pipeline.deployment_pipeline import submit_deployment_pipeline_job
-from fraud_detection.training.automl import SUPPORTED_CLASSIFICATION_METRICS, automl_job_builder, create_automl_job, submit_job
-from fraud_detection.training.lgbm.submit_lgbm import (
-    create_lgbm_sweep_job,
-    lgbm_sweep_job_builder,
-    resolve_lgbm_environment,
-    submit_lgbm_sweep_job,
-)
-
-from fraud_detection.training.xgb.submit_xgb import (
-    xgb_sweep_job_builder,
-    submit_xgb_sweep_job,
-    resolve_xgb_environment,
-    create_xgb_sweep_job,
-)
-from fraud_detection.registry.prod_model import register_prod_model
-from fraud_detection.utils.compute import ensure_training_compute
 from fraud_detection.utils.logging import get_logger
 from fraud_detection.azure.client import get_ml_client
 
 
 app = typer.Typer(help="Utilities to orchestrate Azure ML jobs")
 logger = get_logger(__name__)
+
+DEFAULT_LABEL_COLUMN = "Class"
+DEFAULT_CLASS_RATIO_BOUNDS = (0.0005, 0.03)
+REQUIRED_COLUMNS = (
+    "Time",
+    *[f"V{i}" for i in range(1, 29)],
+    "Amount",
+    "Class",
+)
+
+DEFAULT_PROVIDER_NAMES = (
+    "Microsoft.MachineLearningServices",
+    "Microsoft.ContainerRegistry",
+    "Microsoft.Storage",
+    "Microsoft.KeyVault",
+    "Microsoft.ManagedIdentity",
+    "Microsoft.Insights",
+    "Microsoft.Network",
+)
 
 
 def _write_json(path: Path, payload: dict[str, object] | list[dict[str, object]]) -> None:
@@ -66,6 +55,64 @@ def _parse_bool(value: str | bool | None) -> bool:
     if value is None:
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+_TRUE_VALUES = {"true", "1", "yes", "y"}
+_FALSE_VALUES = {"false", "0", "no", "n"}
+
+
+def _read_bool_file(path: str | None) -> bool | None:
+    if not path:
+        return None
+    content = Path(path).read_text(encoding="utf-8").strip().lower()
+    if content in _TRUE_VALUES:
+        return True
+    if content in _FALSE_VALUES:
+        return False
+    raise typer.BadParameter(f"Unexpected boolean value in {path}: {content!r}")
+
+
+def _run_az(command: list[str]) -> dict[str, object]:
+    az_path = os.environ.get("AZ_PATH") or shutil.which("az")
+    if not az_path:
+        raise typer.BadParameter(
+            "Azure CLI 'az' not found. Install Azure CLI or set AZ_PATH to the az executable."
+        )
+
+    command = [az_path, *command[1:]]
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "").strip()
+        raise typer.BadParameter(f"Azure CLI failed: {message or 'unknown error'}")
+
+    output = (result.stdout or "").strip()
+    if not output:
+        return {}
+    try:
+        return cast(dict[str, object], json.loads(output))
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter("Azure CLI returned non-JSON output.") from exc
+
+
+def _get_provider_state(namespace: str, subscription_id: str) -> str | None:
+    payload = _run_az(
+        [
+            "az",
+            "provider",
+            "show",
+            "--namespace",
+            namespace,
+            "--subscription",
+            subscription_id,
+            "--query",
+            "{namespace:namespace, registrationState:registrationState}",
+            "--output",
+            "json",
+        ]
+    )
+    state = payload.get("registrationState") if isinstance(payload, dict) else None
+    return str(state) if state is not None else None
 
 
 
@@ -154,6 +201,11 @@ def validate_data(
     ] = DEFAULT_CLASS_RATIO_BOUNDS[1],
 ) -> None:
     """Validate a registered fraud dataset."""
+    from fraud_detection.data.data_val.data_validate import (
+        load_from_mltable,
+        validate_data as validate_dataframe,
+    )
+
     settings = get_settings()
     ml_client = get_ml_client()
     dataset_name = dataset_name or settings.registered_dataset_name
@@ -215,7 +267,7 @@ def prep_data_for_train(
     test_ratio: Annotated[
         float,
         typer.Option("--test-ratio", help="Test split ratio.", min=0.0, max=1.0),
-    ] = 0.2,
+    ] = 0.1,
     label_col: Annotated[
         str,
         typer.Option("--label-col", help="Name of the label column."),
@@ -234,6 +286,15 @@ def prep_data_for_train(
     ] = None,
 ) -> None:
     """Prepare train/test splits with scaled Amount/Time columns (test remains unscaled)."""
+    from fraud_detection.data.data_for_train.data_for_train import (
+        fit_scalers,
+        read_is_valid_flag,
+        save_outputs,
+        split_data,
+        transform_with_scalers,
+        write_validation_failure_metadata,
+    )
+
     is_valid_result, invalid_reason = read_is_valid_flag(is_valid)
     if not is_valid_result:
         if not metadata:
@@ -334,6 +395,8 @@ def run_data_pipeline(
     ] = False,
 ) -> None:
     """Run the data validation + preparation pipeline."""
+    from fraud_detection.pipeline.data_pipeline import submit_data_pipeline_job
+
     settings = get_settings()
     ml_client = get_ml_client()
     dataset_name = data_name or settings.registered_dataset_name
@@ -366,7 +429,7 @@ def train_automl(
         typer.Option(
             "--metric",
             "-m",
-            help=f"Please choose from {list(SUPPORTED_CLASSIFICATION_METRICS)}",
+            help="Metric to optimize (see AutoML supported classification metrics).",
             case_sensitive=False,
         ),
     ] = None,
@@ -384,6 +447,9 @@ def train_automl(
     ] = None,
 ):
     """Submit an AutoML classification job for fraud detection."""
+    from fraud_detection.training.automl import automl_job_builder, create_automl_job, submit_job
+    from fraud_detection.utils.compute import ensure_training_compute
+
     settings = get_settings()
     ml_client = get_ml_client()
 
@@ -421,9 +487,25 @@ def train_xgb(
     ] = "average_precision_score_macro",
     val_size: Annotated[float, typer.Option("--val_size", help="Fraction of data used for validation split")] = 0.2,
     compute: Annotated[str | None, typer.Option("--compute", help="Compute target for task")] = None,
+    run_suffix: Annotated[
+        str | None,
+        typer.Option("--run-suffix", help="Optional suffix to make the job name unique."),
+    ] = None,
+    force_new_run: Annotated[
+        bool,
+        typer.Option("--force-new-run/--no-force-new-run", help="Force a new sweep run even if a job exists."),
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry_run", help="If set, the training will not be executed")] = False,
 ):
     """Submit an XGBoost hyperparameter sweep job (no test_data)."""
+    from fraud_detection.training.xgb.submit_xgb import (
+        create_xgb_sweep_job,
+        resolve_xgb_environment,
+        submit_xgb_sweep_job,
+        xgb_sweep_job_builder,
+    )
+    from fraud_detection.utils.compute import ensure_training_compute
+
     settings = get_settings()
     ml_client = get_ml_client()
 
@@ -445,6 +527,8 @@ def train_xgb(
             metric=metric,
             val_size=val_size,
             compute=compute_target,
+            run_suffix=run_suffix,
+            force_new_run=force_new_run,
             settings=settings,
         )
     except ValueError as exc:
@@ -471,9 +555,25 @@ def train_lgbm(
     ] = "average_precision_score_macro",
     val_size: Annotated[float, typer.Option("--val_size", help="Fraction of data used for validation split")] = 0.2,
     compute: Annotated[str | None, typer.Option("--compute", help="Compute target for task")] = None,
+    run_suffix: Annotated[
+        str | None,
+        typer.Option("--run-suffix", help="Optional suffix to make the job name unique."),
+    ] = None,
+    force_new_run: Annotated[
+        bool,
+        typer.Option("--force-new-run/--no-force-new-run", help="Force a new sweep run even if a job exists."),
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry_run", help="If set, the training will not be executed")] = False,
 ) -> None:
     """Submit a LightGBM hyperparameter sweep job (no test_data)."""
+    from fraud_detection.training.lgbm.submit_lgbm import (
+        create_lgbm_sweep_job,
+        lgbm_sweep_job_builder,
+        resolve_lgbm_environment,
+        submit_lgbm_sweep_job,
+    )
+    from fraud_detection.utils.compute import ensure_training_compute
+
     settings = get_settings()
     ml_client = get_ml_client()
 
@@ -495,6 +595,8 @@ def train_lgbm(
             metric=metric,
             val_size=val_size,
             compute=compute_target,
+            run_suffix=run_suffix,
+            force_new_run=force_new_run,
             settings=settings,
         )
     except ValueError as exc:
@@ -551,6 +653,8 @@ def promote_prod_model(
     ] = None,
 ) -> None:
     """Compare experiment runs and promote the best model to production."""
+    from fraud_detection.registry.prod_model import register_prod_model
+
     settings = get_settings()
     ml_client = get_ml_client()
 
@@ -608,6 +712,37 @@ def run_deployment_pipeline(
             help="Specific component version to use (optional).",
         ),
     ] = None,
+    serve_component_version: Annotated[
+        str | None,
+        typer.Option(
+            "--serve-component-version",
+            help="Specific serving component version to use (optional).",
+        ),
+    ] = None,
+    scaler_asset_name: Annotated[
+        str | None,
+        typer.Option("--scaler-asset-name", help="Scaler asset name override."),
+    ] = None,
+    prod_model_name: Annotated[
+        str | None,
+        typer.Option("--prod-model-name", help="Registered production model name override."),
+    ] = None,
+    endpoint_name: Annotated[
+        str | None,
+        typer.Option("--endpoint-name", help="Endpoint name override."),
+    ] = None,
+    deployment_name: Annotated[
+        str | None,
+        typer.Option("--deployment-name", help="Deployment name override."),
+    ] = None,
+    max_alerts: Annotated[
+        int | None,
+        typer.Option("--max-alerts", help="Maximum number of alerts to return."),
+    ] = None,
+    traffic_percentage: Annotated[
+        int | None,
+        typer.Option("--traffic-percentage", help="Traffic percentage for the new deployment."),
+    ] = None,
     experiment_name: Annotated[
         str | None,
         typer.Option(
@@ -623,7 +758,9 @@ def run_deployment_pipeline(
         ),
     ] = False,
 ) -> None:
-    """Submit the deployment pipeline job to test the production model component."""
+    """Submit the deployment pipeline job to promote and (optionally) serve the production model."""
+    from fraud_detection.pipeline.deployment_pipeline import submit_deployment_pipeline_job
+
     settings = get_settings()
     ml_client = get_ml_client()
 
@@ -633,9 +770,16 @@ def run_deployment_pipeline(
             experiments=experiments,
             dry_run=dry_run,
             component_version=component_version,
+            serve_component_version=serve_component_version,
             experiment_name=experiment_name,
-            ml_client=ml_client,
-        )
+            scaler_asset_name=scaler_asset_name,
+            prod_model_name=prod_model_name,
+        endpoint_name=endpoint_name,
+        deployment_name=deployment_name,
+        max_alerts=max_alerts,
+        traffic_percentage=traffic_percentage,
+        ml_client=ml_client,
+    )
     except Exception as exc:
         logger.exception("Failed to submit deployment pipeline", extra={"metric": compare_metric})
         raise typer.BadParameter(str(exc)) from exc
@@ -643,6 +787,244 @@ def run_deployment_pipeline(
     typer.echo(f"Submitted deployment pipeline job: {getattr(job, 'name', None)}")
     if wait:
         ml_client.jobs.stream(getattr(job, "name"))
+
+
+@app.command("check-providers")
+def check_providers(
+    subscription_id: Annotated[
+        str | None,
+        typer.Option("--subscription-id", help="Azure subscription id to check."),
+    ] = None,
+    providers: Annotated[
+        list[str] | None,
+        typer.Option("--provider", help="Provider namespace. Provide multiple times for many providers."),
+    ] = None,
+) -> None:
+    """Check Azure resource provider registration status for the subscription."""
+    settings = get_settings()
+    sub_id = (subscription_id or settings.subscription_id).strip()
+    provider_list = providers or list(DEFAULT_PROVIDER_NAMES)
+
+    if not sub_id:
+        raise typer.BadParameter("subscription-id is required.")
+
+    typer.echo(f"Subscription: {sub_id}")
+    missing: list[str] = []
+
+    for provider in provider_list:
+        name = provider.strip()
+        if not name:
+            continue
+        state = _get_provider_state(name, sub_id) or "Unknown"
+        typer.echo(f"{name}: {state}")
+        if state.lower() != "registered":
+            missing.append(name)
+
+    if missing:
+        typer.echo("Providers not registered:")
+        for name in missing:
+            typer.echo(f"- {name}")
+        typer.echo("Register them with:")
+        for name in missing:
+            typer.echo(f"az provider register --namespace {name} --subscription {sub_id}")
+        raise typer.Exit(code=1)
+
+    typer.echo("All providers are registered.")
+
+
+@app.command("create-endpoint")
+def create_endpoint(
+    endpoint_name: Annotated[
+        str | None,
+        typer.Option("--endpoint-name", help="Endpoint name override."),
+    ] = None,
+    description: Annotated[
+        str | None,
+        typer.Option("--description", help="Optional endpoint description."),
+    ] = None,
+    auth_mode: Annotated[
+        str,
+        typer.Option("--auth-mode", help="Authentication mode (key or aml_token)."),
+    ] = "key",
+) -> None:
+    """Create (or update) an Azure ML online endpoint."""
+    from fraud_detection.serving.endpoint_ops import create_endpoint as create_ml_endpoint
+
+    settings = get_settings()
+    ml_client = get_ml_client()
+    resolved_name = (endpoint_name or settings.endpoint_name).strip()
+    if not resolved_name:
+        raise typer.BadParameter("endpoint-name is required.")
+
+    create_ml_endpoint(
+        ml_client,
+        name=resolved_name,
+        description=description,
+        auth_mode=auth_mode,
+        settings=settings,
+    )
+    typer.echo(f"Created/updated endpoint: {resolved_name}")
+
+
+@app.command("delete-endpoint")
+def delete_endpoint(
+    endpoint_name: Annotated[
+        str | None,
+        typer.Option("--endpoint-name", help="Endpoint name override."),
+    ] = None,
+) -> None:
+    """Delete an Azure ML online endpoint."""
+    from fraud_detection.serving.endpoint_ops import delete_endpoint as delete_ml_endpoint
+
+    settings = get_settings()
+    ml_client = get_ml_client()
+    resolved_name = (endpoint_name or settings.endpoint_name).strip()
+    if not resolved_name:
+        raise typer.BadParameter("endpoint-name is required.")
+
+    delete_ml_endpoint(ml_client, name=resolved_name)
+    typer.echo(f"Deleted endpoint: {resolved_name}")
+
+
+@app.command("serve-prod-model")
+def serve_prod_model(
+    new_promotion: Annotated[
+        str | None,
+        typer.Option("--new-promotion", help="Path to new_promotion flag file from promote-prod-model."),
+    ] = None,
+    prod_model_name: Annotated[
+        str | None,
+        typer.Option("--prod-model-name", help="Registered production model name override."),
+    ] = None,
+    model_version: Annotated[
+        str | None,
+        typer.Option("--model-version", help="Specific model version to deploy (optional)."),
+    ] = None,
+    endpoint_name: Annotated[
+        str | None,
+        typer.Option("--endpoint-name", help="Endpoint name override."),
+    ] = None,
+    deployment_name: Annotated[
+        str | None,
+        typer.Option("--deployment-name", help="Deployment name override."),
+    ] = None,
+    scaler_dir: Annotated[
+        str | None,
+        typer.Option("--scaler-dir", help="Scaler directory (URI_FOLDER from data prep)."),
+    ] = None,
+    max_alerts: Annotated[
+        int,
+        typer.Option("--max-alerts", help="Maximum number of alerts to return.", min=0),
+    ] = 100,
+    traffic_percentage: Annotated[
+        int | None,
+        typer.Option("--traffic-percentage", help="Traffic percentage for the new deployment."),
+    ] = 100,
+    dry_run: Annotated[
+        str | None,
+        typer.Option("--dry-run", help="If true, skip deployment and only log intent."),
+    ] = None,
+    success_flag: Annotated[
+        str | None,
+        typer.Option("--success-flag", help="Path to write success flag (true/false)."),
+    ] = None,
+    endpoint_name_out: Annotated[
+        str | None,
+        typer.Option("--endpoint-name-out", help="Path to write resolved endpoint name."),
+    ] = None,
+    deployment_name_out: Annotated[
+        str | None,
+        typer.Option("--deployment-name-out", help="Path to write resolved deployment name."),
+    ] = None,
+    deployed_model_name: Annotated[
+        str | None,
+        typer.Option("--deployed-model-name", help="Path to write deployed model name."),
+    ] = None,
+    deployed_model_version: Annotated[
+        str | None,
+        typer.Option("--deployed-model-version", help="Path to write deployed model version."),
+    ] = None,
+    scoring_info: Annotated[
+        str | None,
+        typer.Option("--scoring-info", help="Path to write deployment metadata JSON."),
+    ] = None,
+) -> None:
+    """Deploy the production model to an online endpoint (component entrypoint)."""
+    from fraud_detection.serving.serve_prod_model import (
+        resolve_model as resolve_serving_model,
+        serve_prod_model as deploy_prod_model,
+    )
+
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    should_deploy = _read_bool_file(new_promotion)
+    if should_deploy is False:
+        resolved_endpoint = (endpoint_name or settings.endpoint_name).strip()
+        resolved_deployment = (deployment_name or settings.deployment_name).strip()
+        resolved_model_name = (prod_model_name or settings.prod_model_name).strip()
+
+        model_version_value = ""
+        model_name_value = resolved_model_name
+        try:
+            resolved_model = resolve_serving_model(ml_client, model_name=resolved_model_name)
+            model_version_value = resolved_model.version
+            model_name_value = resolved_model.name
+        except Exception as exc:
+            logger.warning("Skipping deployment; failed to resolve model", extra={"error": str(exc)})
+
+        info = {
+            "action": "skipped",
+            "reason": "new_promotion=false",
+            "endpoint_name": resolved_endpoint,
+            "deployment_name": resolved_deployment,
+            "model_name": model_name_value,
+            "model_version": model_version_value,
+        }
+
+        if success_flag:
+            _write_text(Path(success_flag), "true")
+        if endpoint_name_out:
+            _write_text(Path(endpoint_name_out), resolved_endpoint)
+        if deployment_name_out:
+            _write_text(Path(deployment_name_out), resolved_deployment)
+        if deployed_model_name:
+            _write_text(Path(deployed_model_name), model_name_value)
+        if deployed_model_version:
+            _write_text(Path(deployed_model_version), model_version_value)
+        if scoring_info:
+            _write_json(Path(scoring_info), info)
+        typer.echo("Deployment skipped (new_promotion=false).")
+        return
+
+    if not scaler_dir:
+        raise typer.BadParameter("--scaler-dir is required for deployment.")
+
+    result = deploy_prod_model(
+        ml_client,
+        prod_model_name=prod_model_name,
+        model_version=model_version,
+        endpoint_name=endpoint_name,
+        deployment_name=deployment_name,
+        scaler_dir=scaler_dir,
+        max_alerts=max_alerts,
+        traffic_percentage=traffic_percentage,
+        dry_run=_parse_bool(dry_run),
+        settings=settings,
+    )
+
+    if success_flag:
+        _write_text(Path(success_flag), "true")
+    if endpoint_name_out:
+        _write_text(Path(endpoint_name_out), result.endpoint_name)
+    if deployment_name_out:
+        _write_text(Path(deployment_name_out), result.deployment_name)
+    if deployed_model_name:
+        _write_text(Path(deployed_model_name), result.model_name)
+    if deployed_model_version:
+        _write_text(Path(deployed_model_version), result.model_version)
+    if scoring_info:
+        _write_json(Path(scoring_info), result.to_dict())
 
 
 def run() -> None:

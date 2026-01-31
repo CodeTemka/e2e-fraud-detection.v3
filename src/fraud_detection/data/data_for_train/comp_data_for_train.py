@@ -8,7 +8,7 @@ from azure.ai.ml import MLClient, Input, Output, command
 from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Environment
 
-from fraud_detection.azure.client import get_ml_client
+from fraud_detection.azure.client import get_ml_client, resolve_azure_env_vars
 from fraud_detection.utils.versioning import (
     resolve_next_component_version,
     resolve_next_environment_version,
@@ -49,7 +49,7 @@ def create_command():
         inputs={
             "registered_data": Input(type="string"),
             "label_col": Input(type="string", default="Class"),
-            "test_ratio": Input(type="number", default=0.2),
+            "test_ratio": Input(type="number", default=0.1),
             "seed": Input(type="integer", default=42),
             "is_valid": Input(type=AssetTypes.URI_FILE),
         },
@@ -58,6 +58,7 @@ def create_command():
             "metadata": Output(type=AssetTypes.URI_FILE)
         },
         environment=f"{prep_env.name}:{prep_env.version}",
+        environment_variables=resolve_azure_env_vars(),
         code=ROOT_DIR / "src",
         command=(
             "PYTHONPATH=. python -m fraud_detection.cli prep-data-for-train "
