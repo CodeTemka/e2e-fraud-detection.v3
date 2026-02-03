@@ -889,7 +889,7 @@ def create_endpoint(
     ] = "key",
 ) -> None:
     """Create (or update) an Azure ML online endpoint."""
-    from fraud_detection.serving.managed_endpoint.endpoint_ops import create_endpoint as create_ml_endpoint
+    from fraud_detection.serving.endpoint_ops import create_endpoint as create_ml_endpoint
 
     settings = get_settings()
     ml_client = get_ml_client()
@@ -915,7 +915,7 @@ def delete_endpoint(
     ] = None,
 ) -> None:
     """Delete an Azure ML online endpoint."""
-    from fraud_detection.serving.managed_endpoint.endpoint_ops import delete_endpoint as delete_ml_endpoint
+    from fraud_detection.serving.endpoint_ops import delete_endpoint as delete_ml_endpoint
 
     settings = get_settings()
     ml_client = get_ml_client()
@@ -1005,7 +1005,7 @@ def serve_prod_model(
     ] = None,
 ) -> None:
     """Deploy the production model to an online endpoint (component entrypoint)."""
-    from fraud_detection.serving.managed_endpoint.serve_prod_model import (
+    from fraud_detection.serving.serve_prod_model import (
         resolve_model as resolve_serving_model,
         serve_prod_model as deploy_prod_model,
     )
