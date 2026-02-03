@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import time
@@ -32,6 +33,7 @@ class EndpointConfig:
     max_retries: int = 3
     backoff_base: float = 1.5
     backoff_max: float = 30.0
+    alert_rate: float | None = None
 
 
 @dataclass
@@ -281,6 +283,11 @@ def invoke_endpoint_batches(
         }
         if max_alerts is not None:
             payload["max_alerts"] = int(max_alerts)
+        elif config.alert_rate is not None:
+            if not (0.0 <= config.alert_rate <= 1.0):
+                raise ValueError("alert_rate must be between 0.0 and 1.0.")
+            batch_alerts = int(math.ceil(config.alert_rate * len(batch_df)))
+            payload["max_alerts"] = batch_alerts
 
         response = _post_json_with_retry(
             url=scoring_uri,

@@ -87,6 +87,17 @@ def _normalize_positive_int(value: int | None) -> int | None:
     return value if value > 0 else None
 
 
+def _normalize_alert_rate(value: float | None) -> float | None:
+    if value is None:
+        return None
+    rate = float(value)
+    if rate <= 0:
+        return None
+    if rate > 1:
+        raise typer.BadParameter("--alert-rate must be between 0 and 1.")
+    return rate
+
+
 def _run_az(command: list[str]) -> dict[str, object]:
     az_path = os.environ.get("AZ_PATH") or shutil.which("az")
     if not az_path:
@@ -1243,6 +1254,10 @@ def evaluate_endpoint_cmd(
         int | None,
         typer.Option("--max-alerts", help="Optional max alerts override (top-k)."),
     ] = None,
+    alert_rate: Annotated[
+        float | None,
+        typer.Option("--alert-rate", help="Optional alert rate per batch (0-1)."),
+    ] = None,
     sample_rows: Annotated[
         int | None,
         typer.Option("--sample-rows", help="Load only the first N rows (debug).", min=1),
@@ -1280,7 +1295,11 @@ def evaluate_endpoint_cmd(
     resolved_key = _normalize_optional_str(endpoint_key)
     resolved_out = Path(out) if out else (ROOT_DIR / "outputs" / "monitoring")
     resolved_max_alerts = _normalize_positive_int(max_alerts)
-
+    resolved_alert_rate = _normalize_alert_rate(alert_rate)
+    if resolved_max_alerts is None:
+        resolved_alert_rate = resolved_alert_rate or settings.monitor_alert_rate
+    else:
+        resolved_alert_rate = None
     if local:
         mlflow_tracking_uri(ml_client)
         endpoint_cfg = EndpointConfig(
@@ -1292,6 +1311,7 @@ def evaluate_endpoint_cmd(
             batch_size=batch_size,
             request_timeout=request_timeout,
             max_retries=max_retries,
+            alert_rate=resolved_alert_rate,
         )
         eval_cfg = EvaluationConfig(label_column=label_column, sample_rows=sample_rows)
         evaluate_endpoint(
@@ -1321,6 +1341,7 @@ def evaluate_endpoint_cmd(
         max_retries=max_retries,
         request_timeout=request_timeout,
         max_alerts=resolved_max_alerts,
+        alert_rate=resolved_alert_rate,
         psi_bins=10,
         psi_threshold=0.2,
         ks_threshold=0.1,
@@ -1436,6 +1457,7 @@ def check_drift_cmd(
         max_retries=3,
         request_timeout=30.0,
         max_alerts=None,
+        alert_rate=None,
         psi_bins=psi_bins,
         psi_threshold=psi_threshold,
         ks_threshold=ks_threshold,
@@ -1508,6 +1530,10 @@ def monitor_cmd(
         int | None,
         typer.Option("--max-alerts", help="Optional max alerts override (top-k)."),
     ] = None,
+    alert_rate: Annotated[
+        float | None,
+        typer.Option("--alert-rate", help="Optional alert rate per batch (0-1)."),
+    ] = None,
     psi_bins: Annotated[
         int,
         typer.Option("--psi-bins", help="Number of PSI bins.", min=2),
@@ -1564,6 +1590,11 @@ def monitor_cmd(
     resolved_key = _normalize_optional_str(endpoint_key)
     resolved_out = Path(out) if out else (ROOT_DIR / "outputs" / "monitoring")
     resolved_max_alerts = _normalize_positive_int(max_alerts)
+    resolved_alert_rate = _normalize_alert_rate(alert_rate)
+    if resolved_max_alerts is None:
+        resolved_alert_rate = resolved_alert_rate or settings.monitor_alert_rate
+    else:
+        resolved_alert_rate = None
 
     mode_value = (mode or "monitor").strip().lower()
     if mode_value not in {"monitor", "evaluate", "drift"}:
@@ -1580,6 +1611,7 @@ def monitor_cmd(
             batch_size=batch_size,
             request_timeout=request_timeout,
             max_retries=max_retries,
+            alert_rate=resolved_alert_rate,
         )
         eval_cfg = EvaluationConfig(label_column=label_column, sample_rows=sample_rows)
         drift_cfg = DriftConfig(
@@ -1617,6 +1649,7 @@ def monitor_cmd(
         max_retries=max_retries,
         request_timeout=request_timeout,
         max_alerts=resolved_max_alerts,
+        alert_rate=resolved_alert_rate,
         psi_bins=psi_bins,
         psi_threshold=psi_threshold,
         ks_threshold=ks_threshold,

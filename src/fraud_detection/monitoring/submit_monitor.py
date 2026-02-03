@@ -53,6 +53,7 @@ class MonitorJobConfig:
     max_retries: int
     request_timeout: float
     max_alerts: int | None
+    alert_rate: float | None
     psi_bins: int
     psi_threshold: float
     ks_threshold: float
@@ -195,6 +196,7 @@ def create_monitor_job(config: MonitorJobConfig, *, ml_client: MLClient) -> Any:
             "--max-retries ${{inputs.max_retries}} "
             "--request-timeout ${{inputs.request_timeout}} "
             "--max-alerts ${{inputs.max_alerts}} "
+            "--alert-rate ${{inputs.alert_rate}} "
             "--psi-bins ${{inputs.psi_bins}} "
             "--psi-threshold ${{inputs.psi_threshold}} "
             "--ks-threshold ${{inputs.ks_threshold}} "
@@ -215,6 +217,7 @@ def create_monitor_job(config: MonitorJobConfig, *, ml_client: MLClient) -> Any:
             "max_retries": Input(type="integer", default=3),
             "request_timeout": Input(type="number", default=30.0),
             "max_alerts": Input(type="integer", default=0),
+            "alert_rate": Input(type="number", default=0.0),
             "psi_bins": Input(type="integer", default=10),
             "psi_threshold": Input(type="number", default=0.2),
             "ks_threshold": Input(type="number", default=0.1),
@@ -226,24 +229,32 @@ def create_monitor_job(config: MonitorJobConfig, *, ml_client: MLClient) -> Any:
         display_name="monitor-endpoint",
     )
 
-    job = monitor_job(
-        test_data=test_uri,
-        reference_data=ref_uri,
-        endpoint_name=config.endpoint_name,
-        deployment_name=config.deployment_name or "",
-        scoring_uri=config.scoring_uri or "",
-        auth_mode=config.auth_mode or "key",
-        endpoint_key=config.endpoint_key or "",
-        label_column=config.label_column,
-        batch_size=config.batch_size,
-        max_retries=config.max_retries,
-        request_timeout=config.request_timeout,
-        max_alerts=config.max_alerts or 0,
-        psi_bins=config.psi_bins,
-        psi_threshold=config.psi_threshold,
-        ks_threshold=config.ks_threshold,
-        mode=config.mode,
-    )
+    job_inputs: dict[str, Any] = {
+        "test_data": test_uri,
+        "reference_data": ref_uri,
+        "endpoint_name": config.endpoint_name,
+        "auth_mode": config.auth_mode or "key",
+        "label_column": config.label_column,
+        "batch_size": config.batch_size,
+        "max_retries": config.max_retries,
+        "request_timeout": config.request_timeout,
+        "psi_bins": config.psi_bins,
+        "psi_threshold": config.psi_threshold,
+        "ks_threshold": config.ks_threshold,
+        "mode": config.mode,
+    }
+    if config.deployment_name:
+        job_inputs["deployment_name"] = config.deployment_name
+    if config.scoring_uri:
+        job_inputs["scoring_uri"] = config.scoring_uri
+    if config.endpoint_key:
+        job_inputs["endpoint_key"] = config.endpoint_key
+    if config.max_alerts is not None:
+        job_inputs["max_alerts"] = int(config.max_alerts)
+    if config.alert_rate is not None:
+        job_inputs["alert_rate"] = float(config.alert_rate)
+
+    job = monitor_job(**job_inputs)
 
     job.compute = config.compute
     job.experiment_name = config.experiment_name
@@ -266,6 +277,7 @@ def build_monitor_job_config(
     max_retries: int,
     request_timeout: float,
     max_alerts: int | None,
+    alert_rate: float | None,
     psi_bins: int,
     psi_threshold: float,
     ks_threshold: float,
@@ -295,6 +307,7 @@ def build_monitor_job_config(
         max_retries=max_retries,
         request_timeout=request_timeout,
         max_alerts=max_alerts,
+        alert_rate=alert_rate,
         psi_bins=psi_bins,
         psi_threshold=psi_threshold,
         ks_threshold=ks_threshold,

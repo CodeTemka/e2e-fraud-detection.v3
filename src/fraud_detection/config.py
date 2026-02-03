@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     monitor_reference_data: str | None = Field(
         default=None, validation_alias=AliasChoices("MONITOR_REFERENCE_DATA")
     )
+    monitor_alert_rate: float = Field(default=0.1, validation_alias=AliasChoices("MONITOR_ALERT_RATE"))
     
     # Metric settings
     default_metric_automl_train: str = Field(default="average_precision_score_weighted")
