@@ -3,6 +3,9 @@ name: CD
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
 
 concurrency:
   group: cd-${{ github.workflow }}-${{ github.ref }}
