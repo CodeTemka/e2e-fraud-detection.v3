@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from math import floor
 from pathlib import Path
 from typing import Any, Mapping
@@ -20,9 +20,18 @@ from fraud_detection.utils.versioning import resolve_next_environment_version
 
 logger = get_logger(__name__)
 
+try:
+    from datetime import UTC as _UTC  # type: ignore
+except ImportError:  # pragma: no cover - Python < 3.11
+    _UTC = timezone.utc
+
+UTC = _UTC
+
 DEFAULT_AUTH_MODE = "key"
 DEFAULT_SCORING_ENV_NAME = "fraud-scoring-env"
 DEFAULT_SCORING_ENV_FILE = Path(__file__).resolve().parent / "scoring_env.yaml"
+DEFAULT_SCORING_ENV_AUTOML_NAME = "fraud-scoring-env-automl"
+DEFAULT_SCORING_ENV_AUTOML_FILE = Path(__file__).resolve().parent / "scoring_env_automl.yaml"
 DEFAULT_SCORING_ENV_IMAGE = "mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest"
 
 
@@ -85,6 +94,14 @@ def _parse_version(value: str | None) -> tuple[int, ...] | None:
 
 def _version_sort_key(model: Model) -> tuple[int, tuple[int, ...] | str]:
     version_text = str(getattr(model, "version", "") or "")
+    parsed = _parse_version(version_text)
+    if parsed is not None:
+        return (1, parsed)
+    return (0, version_text.lower())
+
+
+def _asset_version_sort_key(asset: object) -> tuple[int, tuple[int, ...] | str]:
+    version_text = str(getattr(asset, "version", "") or "")
     parsed = _parse_version(version_text)
     if parsed is not None:
         return (1, parsed)
@@ -181,29 +198,91 @@ def _resolve_scoring_env_file(settings: Settings) -> Path:
     return Path(raw)
 
 
-def resolve_scoring_environment(ml_client: MLClient, *, settings: Settings | None = None) -> str:
+def _resolve_scoring_env_config(
+    settings: Settings,
+    *,
+    model: ResolvedModel,
+) -> tuple[str, Path, str | None]:
+    model_source = (model.tags.get("model_source", "") or "").strip().lower()
+    if model_source == "automl":
+        env_name = str(
+            getattr(settings, "scoring_env_automl_name", None) or DEFAULT_SCORING_ENV_AUTOML_NAME
+        )
+        env_file = Path(
+            getattr(settings, "scoring_env_automl_file", None) or DEFAULT_SCORING_ENV_AUTOML_FILE
+        )
+        env_version = getattr(settings, "scoring_env_automl_version", None)
+        return env_name, env_file, env_version
+
+    env_name = _resolve_scoring_env_name(settings)
+    env_file = _resolve_scoring_env_file(settings)
+    env_version = getattr(settings, "scoring_env_version", None)
+    return env_name, env_file, env_version
+
+
+def _resolve_existing_scoring_environment(
+    ml_client: MLClient,
+    *,
+    settings: Settings,
+    env_name: str,
+    env_version: str | None,
+) -> str:
+    if env_version:
+        env_id = f"{env_name}:{env_version}"
+        ml_client.environments.get(name=env_name, version=env_version)
+        return env_id
+
+    existing = list(ml_client.environments.list(name=env_name))
+    if not existing:
+        raise ValueError(f"No scoring environment found with name '{env_name}'.")
+    latest = max(existing, key=_asset_version_sort_key)
+    version = str(getattr(latest, "version", "") or "")
+    if not version:
+        raise ValueError(f"Scoring environment '{env_name}' has no version.")
+    return f"{env_name}:{version}"
+
+
+def resolve_scoring_environment(
+    ml_client: MLClient,
+    *,
+    settings: Settings | None = None,
+    skip_register: bool = False,
+    env_name: str | None = None,
+    env_file: str | Path | None = None,
+    env_version: str | None = None,
+) -> str:
     resolved_settings = settings or get_settings()
-    env_name = _resolve_scoring_env_name(resolved_settings)
-    env_version = getattr(resolved_settings, "scoring_env_version", None)
-    env_path = _resolve_scoring_env_file(resolved_settings)
+    resolved_env_name = env_name or _resolve_scoring_env_name(resolved_settings)
+    resolved_env_version = (
+        env_version if env_version is not None else getattr(resolved_settings, "scoring_env_version", None)
+    )
+    env_path = Path(env_file) if env_file is not None else _resolve_scoring_env_file(resolved_settings)
+
+    if skip_register:
+        return _resolve_existing_scoring_environment(
+            ml_client,
+            settings=resolved_settings,
+            env_name=resolved_env_name,
+            env_version=resolved_env_version,
+        )
 
     if not env_path.exists():
         raise FileNotFoundError(f"Scoring environment file not found: {env_path}")
 
-    if env_version:
-        env_id = f"{env_name}:{env_version}"
+    if resolved_env_version:
+        env_id = f"{resolved_env_name}:{resolved_env_version}"
         try:
-            ml_client.environments.get(name=env_name, version=env_version)
+            ml_client.environments.get(name=resolved_env_name, version=resolved_env_version)
             return env_id
         except ResourceNotFoundError:
             logger.warning("Scoring environment not found; creating", extra={"environment": env_id})
 
         env = Environment(
-            name=env_name,
+            name=resolved_env_name,
             description="Fraud detection scoring environment",
             conda_file=str(env_path),
             image=DEFAULT_SCORING_ENV_IMAGE,
-            version=str(env_version),
+            version=str(resolved_env_version),
         )
         created = ml_client.environments.create_or_update(env)
         logger.info(
@@ -212,13 +291,13 @@ def resolve_scoring_environment(ml_client: MLClient, *, settings: Settings | Non
         )
         return f"{created.name}:{created.version}"
 
-    env_version = resolve_next_environment_version(ml_client, name=env_name)
+    resolved_env_version = resolve_next_environment_version(ml_client, name=resolved_env_name)
     env = Environment(
-        name=env_name,
+        name=resolved_env_name,
         description="Fraud detection scoring environment",
         conda_file=str(env_path),
         image=DEFAULT_SCORING_ENV_IMAGE,
-        version=env_version,
+        version=resolved_env_version,
     )
     created = ml_client.environments.create_or_update(env)
     logger.info(
@@ -485,6 +564,7 @@ def serve_prod_model(
     max_alerts: int,
     traffic_percentage: int | None = 100,
     dry_run: bool = False,
+    skip_env: bool = False,
     settings: Settings | None = None,
 ) -> ServeResult:
     cfg = settings or get_settings()
@@ -533,14 +613,35 @@ def serve_prod_model(
         endpoint_name=resolved_endpoint,
     )
 
-    scoring_env = resolve_scoring_environment(ml_client, settings=cfg)
+    scoring_env_name, scoring_env_file, scoring_env_version = _resolve_scoring_env_config(
+        cfg,
+        model=resolved_model,
+    )
+    logger.info(
+        "Selected scoring environment",
+        extra={
+            "model_source": resolved_model.tags.get("model_source"),
+            "env_name": scoring_env_name,
+            "env_file": str(scoring_env_file),
+            "env_version": scoring_env_version,
+            "skip_env": skip_env,
+        },
+    )
+    scoring_env = resolve_scoring_environment(
+        ml_client,
+        settings=cfg,
+        skip_register=skip_env,
+        env_name=scoring_env_name,
+        env_file=scoring_env_file,
+        env_version=scoring_env_version,
+    )
     env_vars = {
         "MAX_ALERTS": str(max_alerts),
         "ALERT_CAP": str(max_alerts),
         "SCALER_DIR": "scalers",
     }
 
-    scoring_script = Path(__file__).resolve().parent / "score.py"
+    scoring_script = Path(__file__).resolve().parents[1] / "score.py"
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         code_dir = prepare_code_directory(

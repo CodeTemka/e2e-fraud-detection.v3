@@ -5,7 +5,6 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -42,22 +41,91 @@ DEFAULT_SCALER_FILES = {
 }
 
 
-@dataclass
+def _ensure_numpy_pickle_compat() -> None:
+    """Best-effort compatibility for pickles created with newer NumPy internals."""
+    import sys
+
+    try:
+        import numpy as np  # noqa: F401
+    except Exception:
+        return
+
+    if "numpy._core" not in sys.modules:
+        try:
+            import numpy.core as core
+        except Exception:
+            core = None
+        if core is not None:
+            sys.modules["numpy._core"] = core
+
+    aliases = (
+        ("numpy._core.multiarray", "numpy.core.multiarray"),
+        ("numpy._core._multiarray_umath", "numpy.core._multiarray_umath"),
+    )
+    for old, new in aliases:
+        if old in sys.modules:
+            continue
+        try:
+            sys.modules[old] = __import__(new, fromlist=["*"])
+        except Exception:
+            continue
+
+
 class ModelAssets:
-    model: Any
-    feature_columns: list[str]
-    label_column: str
-    id_columns: list[str]
-    scalers: dict[str, Any]
-    model_kind: str
+    def __init__(
+        self,
+        *,
+        model: Any,
+        feature_columns: list[str],
+        label_column: str,
+        id_columns: list[str],
+        scalers: dict[str, Any],
+        model_kind: str,
+    ) -> None:
+        self.model = model
+        self.feature_columns = feature_columns
+        self.label_column = label_column
+        self.id_columns = id_columns
+        self.scalers = scalers
+        self.model_kind = model_kind
 
 
 MODEL_ASSETS: ModelAssets | None = None
 
 
+MODEL_ARTIFACT_FILES = {
+    "MLmodel",
+    "model.json",
+    "model.ubj",
+    "model.txt",
+    "model.joblib",
+    "model.pkl",
+    "model.pickle",
+}
+
+
+def _find_model_dir(root: Path) -> Path | None:
+    if root.is_dir():
+        for filename in MODEL_ARTIFACT_FILES:
+            if (root / filename).exists():
+                return root
+
+    matches: list[Path] = []
+    for filename in MODEL_ARTIFACT_FILES:
+        matches.extend(root.rglob(filename))
+
+    if not matches:
+        return None
+
+    matches.sort(key=lambda path: len(path.parts))
+    return matches[0].parent
+
+
 def _resolve_model_dir() -> Path:
     raw = os.environ.get("AZUREML_MODEL_DIR", "").strip() or "."
-    return Path(raw).resolve()
+    resolved = Path(raw).resolve()
+    found = _find_model_dir(resolved)
+    return found or resolved
 
 
 def _load_metadata(model_dir: Path) -> dict[str, Any]:
@@ -81,7 +149,11 @@ def _load_mlflow_model(model_dir: Path) -> tuple[Any, str]:
     flavors = config.get("flavors", {}) if isinstance(config, dict) else {}
 
     if "sklearn" in flavors:
-        return mlflow.sklearn.load_model(str(model_dir)), "mlflow_sklearn"
+        try:
+            return mlflow.sklearn.load_model(str(model_dir)), "mlflow_sklearn"
+        except ModuleNotFoundError as exc:
+            logger.warning("Failed to load sklearn flavor; falling back to pyfunc.", extra={"error": str(exc)})
+            return mlflow.pyfunc.load_model(str(model_dir)), "mlflow_pyfunc"
     if "xgboost" in flavors:
         return mlflow.xgboost.load_model(str(model_dir)), "mlflow_xgboost"
     if "lightgbm" in flavors:
@@ -370,6 +442,8 @@ def _resolve_default_alert_cap() -> int:
 def init() -> None:
     global MODEL_ASSETS
     global DEFAULT_ALERT_CAP
+
+    _ensure_numpy_pickle_compat()
 
     model_dir = _resolve_model_dir()
     metadata = _load_metadata(model_dir)

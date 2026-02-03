@@ -2,7 +2,7 @@ name: fraud-scoring-env
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
+  - python=3.12
   - pip
   - pip:
       - numpy==1.26.4
@@ -12,5 +12,6 @@ dependencies:
       - xgboost==2.1.1
       - lightgbm==4.6.0
       - mlflow==3.7.0
+      - azureml-mlflow==1.60.0
       - pyyaml==6.0.2
-      - azureml-inference-server-http==0.8.4
+      - azureml-inference-server-http==1.5.1

@@ -65,6 +65,8 @@ def create_component() -> object:
             "max_alerts": Input(type="integer"),
             "traffic_percentage": Input(type="integer", default=100),
             "dry_run": Input(type="string", default="false"),
+            "force_deploy": Input(type="string", default="false"),
+            "skip_env": Input(type="string", default="false"),
         },
         outputs={
             "success_flag": Output(type=AssetTypes.URI_FILE),
@@ -87,6 +89,8 @@ def create_component() -> object:
             "--max-alerts ${{inputs.max_alerts}} "
             "--traffic-percentage ${{inputs.traffic_percentage}} "
             "--dry-run ${{inputs.dry_run}} "
+            "--force-deploy ${{inputs.force_deploy}} "
+            "--skip-env ${{inputs.skip_env}} "
             "--success-flag ${{outputs.success_flag}} "
             "--endpoint-name-out ${{outputs.endpoint_name}} "
             "--deployment-name-out ${{outputs.deployment_name}} "
