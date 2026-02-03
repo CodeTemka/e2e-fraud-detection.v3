@@ -166,6 +166,8 @@ def resolve_monitor_environment(ml_client: MLClient, config: MonitorJobConfig) -
 
 def create_monitor_job(config: MonitorJobConfig, *, ml_client: MLClient) -> Any:
     """Create a single command job that runs evaluation + drift in one MLflow run."""
+    import shlex
+
     azure_env_vars = resolve_azure_env_vars(settings=get_settings())
     environment = resolve_monitor_environment(ml_client, config)
 
@@ -180,81 +182,47 @@ def create_monitor_job(config: MonitorJobConfig, *, ml_client: MLClient) -> Any:
         data_label=get_settings().registered_dataset_label,
     )
 
-    monitor_job = command(
+    cmd_parts = [
+        "PYTHONPATH=. python -m fraud_detection.cli monitor",
+        "--test-data ${{inputs.test_data}}",
+        "--ref-data ${{inputs.reference_data}}",
+        f"--endpoint-name {shlex.quote(config.endpoint_name)}",
+        f"--auth-mode {shlex.quote(config.auth_mode or 'key')}",
+        f"--label-column {shlex.quote(config.label_column)}",
+        f"--batch-size {int(config.batch_size)}",
+        f"--max-retries {int(config.max_retries)}",
+        f"--request-timeout {float(config.request_timeout)}",
+        f"--psi-bins {int(config.psi_bins)}",
+        f"--psi-threshold {float(config.psi_threshold)}",
+        f"--ks-threshold {float(config.ks_threshold)}",
+        f"--mode {shlex.quote(config.mode)}",
+        "--out ${{outputs.output_dir}}",
+        "--local",
+    ]
+
+    if config.deployment_name:
+        cmd_parts.append(f"--deployment-name {shlex.quote(config.deployment_name)}")
+    if config.scoring_uri:
+        cmd_parts.append(f"--scoring-uri {shlex.quote(config.scoring_uri)}")
+    if config.endpoint_key:
+        cmd_parts.append(f"--endpoint-key {shlex.quote(config.endpoint_key)}")
+    if config.max_alerts is not None:
+        cmd_parts.append(f"--max-alerts {int(config.max_alerts)}")
+    if config.alert_rate is not None:
+        cmd_parts.append(f"--alert-rate {float(config.alert_rate)}")
+
+    job = command(
         code=str(ROOT_DIR / "src"),
-        command=(
-            "PYTHONPATH=. python -m fraud_detection.cli monitor "
-            "--test-data ${{inputs.test_data}} "
-            "--ref-data ${{inputs.reference_data}} "
-            "--endpoint-name ${{inputs.endpoint_name}} "
-            "--deployment-name ${{inputs.deployment_name}} "
-            "--scoring-uri ${{inputs.scoring_uri}} "
-            "--auth-mode ${{inputs.auth_mode}} "
-            "--endpoint-key ${{inputs.endpoint_key}} "
-            "--label-column ${{inputs.label_column}} "
-            "--batch-size ${{inputs.batch_size}} "
-            "--max-retries ${{inputs.max_retries}} "
-            "--request-timeout ${{inputs.request_timeout}} "
-            "--max-alerts ${{inputs.max_alerts}} "
-            "--alert-rate ${{inputs.alert_rate}} "
-            "--psi-bins ${{inputs.psi_bins}} "
-            "--psi-threshold ${{inputs.psi_threshold}} "
-            "--ks-threshold ${{inputs.ks_threshold}} "
-            "--mode ${{inputs.mode}} "
-            "--out ${{outputs.output_dir}} "
-            "--local"
-        ),
+        command=" ".join(cmd_parts),
         inputs={
-            "test_data": Input(type=test_type),
-            "reference_data": Input(type=ref_type),
-            "endpoint_name": Input(type="string"),
-            "deployment_name": Input(type="string", default=""),
-            "scoring_uri": Input(type="string", default=""),
-            "auth_mode": Input(type="string", default="key"),
-            "endpoint_key": Input(type="string", default=""),
-            "label_column": Input(type="string", default="Class"),
-            "batch_size": Input(type="integer", default=200),
-            "max_retries": Input(type="integer", default=3),
-            "request_timeout": Input(type="number", default=30.0),
-            "max_alerts": Input(type="integer", default=0),
-            "alert_rate": Input(type="number", default=0.0),
-            "psi_bins": Input(type="integer", default=10),
-            "psi_threshold": Input(type="number", default=0.2),
-            "ks_threshold": Input(type="number", default=0.1),
-            "mode": Input(type="string", default="monitor"),
+            "test_data": Input(type=test_type, path=test_uri),
+            "reference_data": Input(type=ref_type, path=ref_uri),
         },
         outputs={"output_dir": Output(type=AssetTypes.URI_FOLDER)},
         environment=environment,
         environment_variables=azure_env_vars,
         display_name="monitor-endpoint",
     )
-
-    job_inputs: dict[str, Any] = {
-        "test_data": test_uri,
-        "reference_data": ref_uri,
-        "endpoint_name": config.endpoint_name,
-        "auth_mode": config.auth_mode or "key",
-        "label_column": config.label_column,
-        "batch_size": config.batch_size,
-        "max_retries": config.max_retries,
-        "request_timeout": config.request_timeout,
-        "psi_bins": config.psi_bins,
-        "psi_threshold": config.psi_threshold,
-        "ks_threshold": config.ks_threshold,
-        "mode": config.mode,
-    }
-    if config.deployment_name:
-        job_inputs["deployment_name"] = config.deployment_name
-    if config.scoring_uri:
-        job_inputs["scoring_uri"] = config.scoring_uri
-    if config.endpoint_key:
-        job_inputs["endpoint_key"] = config.endpoint_key
-    if config.max_alerts is not None:
-        job_inputs["max_alerts"] = int(config.max_alerts)
-    if config.alert_rate is not None:
-        job_inputs["alert_rate"] = float(config.alert_rate)
-
-    job = monitor_job(**job_inputs)
 
     job.compute = config.compute
     job.experiment_name = config.experiment_name
