@@ -161,18 +161,18 @@ def ensure_training_compute(
     )
 
 
-def ensure_data_compute(
+def ensure_pipeline_compute(
     ml_client: MLClient,
 ) -> Any:
-    """Ensure compute for data processing jobs is present."""
+    """Ensure compute for pipeline jobs is present."""
 
     settings = get_settings()
     return ensure_compute(
         ml_client,
-        name=settings.data_compute_cluster_name,
-        size=settings.data_compute_cluster_type,
+        name=settings.pipeline_compute_cluster_name,
+        size=settings.pipeline_compute_cluster_type,
         min_instances=0,
-        max_instances=settings.data_compute_cluster_node_max_count,
+        max_instances=settings.pipeline_compute_cluster_node_max_count,
         idle_time_before_scale_down=settings.compute_idle_time_before_scale_down,
     )
 
@@ -181,5 +181,5 @@ __all__ = [
     "delete_compute",
     "ensure_compute",
     "ensure_training_compute",
-    "ensure_data_compute",
+    "ensure_pipeline_compute",
 ]

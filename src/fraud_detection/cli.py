@@ -11,7 +11,7 @@ from typing import Annotated, cast
 
 import typer
 
-from fraud_detection.config import get_settings
+from fraud_detection.config import ROOT_DIR, get_settings
 from fraud_detection.utils.logging import get_logger
 from fraud_detection.azure.client import get_ml_client
 
@@ -36,6 +36,8 @@ DEFAULT_PROVIDER_NAMES = (
     "Microsoft.ManagedIdentity",
     "Microsoft.Insights",
     "Microsoft.Network",
+    "Microsoft.PolicyInsights",
+    "Microsoft.Cdn",
 )
 
 
@@ -70,6 +72,19 @@ def _read_bool_file(path: str | None) -> bool | None:
     if content in _FALSE_VALUES:
         return False
     raise typer.BadParameter(f"Unexpected boolean value in {path}: {content!r}")
+
+
+def _normalize_optional_str(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_positive_int(value: int | None) -> int | None:
+    if value is None:
+        return None
+    return value if value > 0 else None
 
 
 def _run_az(command: list[str]) -> dict[str, object]:
@@ -705,6 +720,20 @@ def run_deployment_pipeline(
             help="If set, evaluate promotion without registering a model.",
         ),
     ] = False,
+    force_deploy: Annotated[
+        bool,
+        typer.Option(
+            "--force-deploy/--no-force-deploy",
+            help="Deploy even when new_promotion=false (useful for scoring env updates).",
+        ),
+    ] = False,
+    skip_env: Annotated[
+        bool,
+        typer.Option(
+            "--skip-env/--no-skip-env",
+            help="Reuse existing scoring environment instead of registering a new one.",
+        ),
+    ] = False,
     component_version: Annotated[
         str | None,
         typer.Option(
@@ -769,17 +798,19 @@ def run_deployment_pipeline(
             compare_metric=compare_metric or settings.default_metric_serving,
             experiments=experiments,
             dry_run=dry_run,
+            force_deploy=force_deploy,
+            skip_env=skip_env,
             component_version=component_version,
             serve_component_version=serve_component_version,
             experiment_name=experiment_name,
             scaler_asset_name=scaler_asset_name,
             prod_model_name=prod_model_name,
-        endpoint_name=endpoint_name,
-        deployment_name=deployment_name,
-        max_alerts=max_alerts,
-        traffic_percentage=traffic_percentage,
-        ml_client=ml_client,
-    )
+            endpoint_name=endpoint_name,
+            deployment_name=deployment_name,
+            max_alerts=max_alerts,
+            traffic_percentage=traffic_percentage,
+            ml_client=ml_client,
+        )
     except Exception as exc:
         logger.exception("Failed to submit deployment pipeline", extra={"metric": compare_metric})
         raise typer.BadParameter(str(exc)) from exc
@@ -848,7 +879,7 @@ def create_endpoint(
     ] = "key",
 ) -> None:
     """Create (or update) an Azure ML online endpoint."""
-    from fraud_detection.serving.endpoint_ops import create_endpoint as create_ml_endpoint
+    from fraud_detection.serving.managed_endpoint.endpoint_ops import create_endpoint as create_ml_endpoint
 
     settings = get_settings()
     ml_client = get_ml_client()
@@ -874,7 +905,7 @@ def delete_endpoint(
     ] = None,
 ) -> None:
     """Delete an Azure ML online endpoint."""
-    from fraud_detection.serving.endpoint_ops import delete_endpoint as delete_ml_endpoint
+    from fraud_detection.serving.managed_endpoint.endpoint_ops import delete_endpoint as delete_ml_endpoint
 
     settings = get_settings()
     ml_client = get_ml_client()
@@ -924,6 +955,20 @@ def serve_prod_model(
         str | None,
         typer.Option("--dry-run", help="If true, skip deployment and only log intent."),
     ] = None,
+    skip_env: Annotated[
+        str | None,
+        typer.Option(
+            "--skip-env",
+            help="If true, reuse existing scoring environment instead of registering a new one.",
+        ),
+    ] = None,
+    force_deploy: Annotated[
+        str | None,
+        typer.Option(
+            "--force-deploy",
+            help="If true, deploy even when new_promotion=false (useful for scoring env updates).",
+        ),
+    ] = None,
     success_flag: Annotated[
         str | None,
         typer.Option("--success-flag", help="Path to write success flag (true/false)."),
@@ -948,18 +993,71 @@ def serve_prod_model(
         str | None,
         typer.Option("--scoring-info", help="Path to write deployment metadata JSON."),
     ] = None,
+    target: Annotated[
+        str,
+        typer.Option("--target", help="Deployment target (aml-endpoint or container-apps)."),
+    ] = "aml-endpoint",
+    container_app_name: Annotated[
+        str | None,
+        typer.Option("--container-app-name", help="Container Apps name override."),
+    ] = None,
+    container_app_environment: Annotated[
+        str | None,
+        typer.Option("--container-app-environment", help="Container Apps environment name override."),
+    ] = None,
+    container_registry_name: Annotated[
+        str | None,
+        typer.Option("--container-registry", help="ACR name for building the image."),
+    ] = None,
+    container_image: Annotated[
+        str | None,
+        typer.Option("--container-image", help="Full image reference to deploy (skips build)."),
+    ] = None,
+    container_image_name: Annotated[
+        str | None,
+        typer.Option("--container-image-name", help="Image repository name when building."),
+    ] = None,
+    container_image_tag: Annotated[
+        str | None,
+        typer.Option("--container-image-tag", help="Image tag when building."),
+    ] = None,
+    container_dockerfile: Annotated[
+        str | None,
+        typer.Option("--container-dockerfile", help="Dockerfile path for image build."),
+    ] = None,
+    container_source: Annotated[
+        str | None,
+        typer.Option("--container-source", help="Build context path for image build."),
+    ] = None,
+    use_managed_identity: Annotated[
+        bool,
+        typer.Option(
+            "--use-managed-identity/--use-service-principal",
+            help="Use managed identity for Container Apps (default).",
+        ),
+    ] = True,
+    scaler_asset_name: Annotated[
+        str | None,
+        typer.Option("--scaler-asset-name", help="Scaler data asset name (Container Apps)."),
+    ] = None,
+    scaler_asset_version: Annotated[
+        str | None,
+        typer.Option("--scaler-asset-version", help="Scaler data asset version (optional)."),
+    ] = None,
 ) -> None:
     """Deploy the production model to an online endpoint (component entrypoint)."""
-    from fraud_detection.serving.serve_prod_model import (
+    from fraud_detection.serving.managed_endpoint.serve_prod_model import (
         resolve_model as resolve_serving_model,
         serve_prod_model as deploy_prod_model,
     )
+    from fraud_detection.serving.container_registry.container_apps import deploy_container_app
 
     settings = get_settings()
     ml_client = get_ml_client()
 
     should_deploy = _read_bool_file(new_promotion)
-    if should_deploy is False:
+    force_deploy_flag = _parse_bool(force_deploy)
+    if should_deploy is False and not force_deploy_flag:
         resolved_endpoint = (endpoint_name or settings.endpoint_name).strip()
         resolved_deployment = (deployment_name or settings.deployment_name).strip()
         resolved_model_name = (prod_model_name or settings.prod_model_name).strip()
@@ -996,35 +1094,541 @@ def serve_prod_model(
             _write_json(Path(scoring_info), info)
         typer.echo("Deployment skipped (new_promotion=false).")
         return
+    if should_deploy is False and force_deploy_flag:
+        logger.info(
+            "Forcing deployment despite new_promotion=false",
+            extra={"endpoint_name": endpoint_name, "deployment_name": deployment_name},
+        )
 
-    if not scaler_dir:
-        raise typer.BadParameter("--scaler-dir is required for deployment.")
+    resolved_target = (target or "").strip().lower()
+    if resolved_target in {"aml", "aml-endpoint", "online-endpoint"}:
+        if not scaler_dir:
+            raise typer.BadParameter("--scaler-dir is required for AML endpoint deployment.")
 
-    result = deploy_prod_model(
+        result = deploy_prod_model(
+            ml_client,
+            prod_model_name=prod_model_name,
+            model_version=model_version,
+            endpoint_name=endpoint_name,
+            deployment_name=deployment_name,
+            scaler_dir=scaler_dir,
+            max_alerts=max_alerts,
+            traffic_percentage=traffic_percentage,
+            dry_run=_parse_bool(dry_run),
+            skip_env=_parse_bool(skip_env),
+            settings=settings,
+        )
+
+        if success_flag:
+            _write_text(Path(success_flag), "true")
+        if endpoint_name_out:
+            _write_text(Path(endpoint_name_out), result.endpoint_name)
+        if deployment_name_out:
+            _write_text(Path(deployment_name_out), result.deployment_name)
+        if deployed_model_name:
+            _write_text(Path(deployed_model_name), result.model_name)
+        if deployed_model_version:
+            _write_text(Path(deployed_model_version), result.model_version)
+        if scoring_info:
+            _write_json(Path(scoring_info), result.to_dict())
+        return
+
+    if resolved_target not in {"container-apps", "containerapp", "aca"}:
+        raise typer.BadParameter(
+            "Unsupported target. Choose 'aml-endpoint' or 'container-apps'."
+        )
+
+    resolved_app_name = (container_app_name or settings.container_app_name).strip()
+    resolved_env_name = (container_app_environment or settings.container_app_environment).strip()
+    if not resolved_app_name:
+        raise typer.BadParameter("container-app-name is required for Container Apps deployment.")
+    if not resolved_env_name:
+        raise typer.BadParameter("container-app-environment is required for Container Apps deployment.")
+
+    resolved_registry = (container_registry_name or settings.container_registry_name or "").strip() or None
+    resolved_image_name = (container_image_name or settings.container_app_image_name or "").strip() or None
+    resolved_dockerfile = container_dockerfile or str(ROOT_DIR / "deploy" / "container_apps" / "Dockerfile")
+    resolved_source = container_source or str(ROOT_DIR)
+
+    resolved_scaler_asset = (scaler_asset_name or settings.serving_scalers_name).strip()
+    if not resolved_scaler_asset:
+        raise typer.BadParameter("scaler-asset-name is required for Container Apps deployment.")
+
+    container_result = deploy_container_app(
         ml_client,
-        prod_model_name=prod_model_name,
+        app_name=resolved_app_name,
+        environment_name=resolved_env_name,
+        model_name=prod_model_name or settings.prod_model_name,
         model_version=model_version,
-        endpoint_name=endpoint_name,
-        deployment_name=deployment_name,
-        scaler_dir=scaler_dir,
+        scaler_asset_name=resolved_scaler_asset,
+        scaler_asset_version=scaler_asset_version,
+        registry_name=resolved_registry,
+        image_name=resolved_image_name,
+        image_tag=container_image_tag,
+        image=container_image,
+        dockerfile=resolved_dockerfile,
+        source_dir=resolved_source,
+        target_port=settings.container_app_port,
         max_alerts=max_alerts,
-        traffic_percentage=traffic_percentage,
         dry_run=_parse_bool(dry_run),
+        include_sp_credentials=not use_managed_identity,
         settings=settings,
     )
 
     if success_flag:
         _write_text(Path(success_flag), "true")
     if endpoint_name_out:
-        _write_text(Path(endpoint_name_out), result.endpoint_name)
+        _write_text(Path(endpoint_name_out), container_result.app_name)
     if deployment_name_out:
-        _write_text(Path(deployment_name_out), result.deployment_name)
+        _write_text(Path(deployment_name_out), container_result.revision or container_result.app_name)
     if deployed_model_name:
-        _write_text(Path(deployed_model_name), result.model_name)
+        _write_text(Path(deployed_model_name), container_result.model_name)
     if deployed_model_version:
-        _write_text(Path(deployed_model_version), result.model_version)
+        _write_text(Path(deployed_model_version), container_result.model_version)
     if scoring_info:
-        _write_json(Path(scoring_info), result.to_dict())
+        _write_json(Path(scoring_info), container_result.to_dict())
+
+
+@app.command("evaluate-endpoint")
+def evaluate_endpoint_cmd(
+    test_data: Annotated[
+        str | None,
+        typer.Option("--test-data", help="Registered test data asset name or local path."),
+    ] = None,
+    data_label: Annotated[
+        str | None,
+        typer.Option("--data-label", help="Optional data asset label for test data."),
+    ] = None,
+    endpoint_name: Annotated[
+        str | None,
+        typer.Option("--endpoint-name", help="Endpoint name override."),
+    ] = None,
+    deployment_name: Annotated[
+        str | None,
+        typer.Option("--deployment-name", help="Deployment name override."),
+    ] = None,
+    scoring_uri: Annotated[
+        str | None,
+        typer.Option("--scoring-uri", help="Override scoring URI (skips endpoint lookup)."),
+    ] = None,
+    endpoint_key: Annotated[
+        str | None,
+        typer.Option("--endpoint-key", help="Endpoint key (falls back to env vars)."),
+    ] = None,
+    auth_mode: Annotated[
+        str,
+        typer.Option("--auth-mode", help="Auth mode for endpoint calls (key or aad)."),
+    ] = "key",
+    label_column: Annotated[
+        str,
+        typer.Option("--label-column", help="Label column name."),
+    ] = DEFAULT_LABEL_COLUMN,
+    out: Annotated[
+        str | None,
+        typer.Option("--out", help="Output directory for evaluation artifacts."),
+    ] = None,
+    batch_size: Annotated[
+        int,
+        typer.Option("--batch-size", help="Batch size for endpoint calls.", min=1),
+    ] = 200,
+    max_retries: Annotated[
+        int,
+        typer.Option("--max-retries", help="Max retries for endpoint calls.", min=0),
+    ] = 3,
+    request_timeout: Annotated[
+        float,
+        typer.Option("--request-timeout", help="Request timeout (seconds).", min=1.0),
+    ] = 30.0,
+    max_alerts: Annotated[
+        int | None,
+        typer.Option("--max-alerts", help="Optional max alerts override (top-k)."),
+    ] = None,
+    sample_rows: Annotated[
+        int | None,
+        typer.Option("--sample-rows", help="Load only the first N rows (debug).", min=1),
+    ] = None,
+    experiment_name: Annotated[
+        str | None,
+        typer.Option("--experiment-name", help="MLflow experiment name override."),
+    ] = None,
+    local: Annotated[
+        bool,
+        typer.Option("--local/--submit", help="Run locally instead of submitting an Azure ML job."),
+    ] = False,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait/--no-wait", help="Stream job logs when submitting."),
+    ] = False,
+    compute: Annotated[
+        str | None,
+        typer.Option("--compute", help="Azure ML compute target override."),
+    ] = None,
+) -> None:
+    """Evaluate the deployed endpoint on test data."""
+    from fraud_detection.monitoring.endpoint_client import EndpointConfig
+    from fraud_detection.monitoring.evaluate_endpoint import EvaluationConfig, evaluate_endpoint
+    from fraud_detection.monitoring.submit_monitor import build_monitor_job_config, submit_monitor_job
+    from fraud_detection.registry.prod_model import mlflow_tracking_uri
+
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    resolved_test = (test_data or settings.registered_test).strip()
+    resolved_endpoint = _normalize_optional_str(endpoint_name) or settings.endpoint_name
+    resolved_deployment = _normalize_optional_str(deployment_name) or settings.deployment_name
+    resolved_scoring = _normalize_optional_str(scoring_uri)
+    resolved_key = _normalize_optional_str(endpoint_key)
+    resolved_out = Path(out) if out else (ROOT_DIR / "outputs" / "monitoring")
+    resolved_max_alerts = _normalize_positive_int(max_alerts)
+
+    if local:
+        mlflow_tracking_uri(ml_client)
+        endpoint_cfg = EndpointConfig(
+            endpoint_name=resolved_endpoint,
+            deployment_name=resolved_deployment,
+            scoring_uri=resolved_scoring,
+            auth_mode=auth_mode,
+            endpoint_key=resolved_key,
+            batch_size=batch_size,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+        )
+        eval_cfg = EvaluationConfig(label_column=label_column, sample_rows=sample_rows)
+        evaluate_endpoint(
+            test_data=resolved_test,
+            endpoint_config=endpoint_cfg,
+            output_dir=resolved_out,
+            config=eval_cfg,
+            ml_client=ml_client,
+            data_label=data_label,
+            max_alerts=resolved_max_alerts,
+            experiment_name=experiment_name,
+        )
+        typer.echo(f"Evaluation artifacts written to: {resolved_out}")
+        return
+
+    reference_data = settings.monitor_reference_data or settings.registered_dataset_name
+    job_config = build_monitor_job_config(
+        test_data=resolved_test,
+        reference_data=reference_data,
+        endpoint_name=resolved_endpoint,
+        deployment_name=resolved_deployment,
+        scoring_uri=resolved_scoring,
+        auth_mode=auth_mode,
+        endpoint_key=resolved_key,
+        label_column=label_column,
+        batch_size=batch_size,
+        max_retries=max_retries,
+        request_timeout=request_timeout,
+        max_alerts=resolved_max_alerts,
+        psi_bins=10,
+        psi_threshold=0.2,
+        ks_threshold=0.1,
+        mode="evaluate",
+        compute=compute,
+        experiment_name=experiment_name,
+        settings=settings,
+    )
+    job = submit_monitor_job(ml_client, job_config)
+    typer.echo(f"Submitted evaluation job: {getattr(job, 'name', None)}")
+    if wait:
+        ml_client.jobs.stream(getattr(job, "name"))
+
+
+@app.command("check-drift")
+def check_drift_cmd(
+    test_data: Annotated[
+        str | None,
+        typer.Option("--test-data", help="Registered test data asset name or local path."),
+    ] = None,
+    ref_data: Annotated[
+        str | None,
+        typer.Option("--ref-data", help="Reference data asset name or local path."),
+    ] = None,
+    data_label: Annotated[
+        str | None,
+        typer.Option("--data-label", help="Optional data asset label."),
+    ] = None,
+    label_column: Annotated[
+        str,
+        typer.Option("--label-column", help="Label column name."),
+    ] = DEFAULT_LABEL_COLUMN,
+    out: Annotated[
+        str | None,
+        typer.Option("--out", help="Output directory for drift artifacts."),
+    ] = None,
+    psi_bins: Annotated[
+        int,
+        typer.Option("--psi-bins", help="Number of PSI bins.", min=2),
+    ] = 10,
+    psi_threshold: Annotated[
+        float,
+        typer.Option("--psi-threshold", help="PSI drift threshold.", min=0.0),
+    ] = 0.2,
+    ks_threshold: Annotated[
+        float,
+        typer.Option("--ks-threshold", help="KS drift threshold.", min=0.0),
+    ] = 0.1,
+    sample_rows: Annotated[
+        int | None,
+        typer.Option("--sample-rows", help="Load only the first N rows (debug).", min=1),
+    ] = None,
+    experiment_name: Annotated[
+        str | None,
+        typer.Option("--experiment-name", help="MLflow experiment name override."),
+    ] = None,
+    local: Annotated[
+        bool,
+        typer.Option("--local/--submit", help="Run locally instead of submitting an Azure ML job."),
+    ] = False,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait/--no-wait", help="Stream job logs when submitting."),
+    ] = False,
+    compute: Annotated[
+        str | None,
+        typer.Option("--compute", help="Azure ML compute target override."),
+    ] = None,
+) -> None:
+    """Check drift between reference and current datasets."""
+    from fraud_detection.monitoring.drift import DriftConfig, run_drift_check
+    from fraud_detection.monitoring.submit_monitor import build_monitor_job_config, submit_monitor_job
+    from fraud_detection.registry.prod_model import mlflow_tracking_uri
+
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    resolved_test = (test_data or settings.registered_test).strip()
+    resolved_ref = (ref_data or settings.monitor_reference_data or settings.registered_dataset_name).strip()
+    resolved_out = Path(out) if out else (ROOT_DIR / "outputs" / "monitoring")
+
+    if local:
+        mlflow_tracking_uri(ml_client)
+        drift_cfg = DriftConfig(
+            label_column=label_column,
+            psi_bins=psi_bins,
+            psi_threshold=psi_threshold,
+            ks_threshold=ks_threshold,
+            sample_rows=sample_rows,
+        )
+        run_drift_check(
+            reference_data=resolved_ref,
+            current_data=resolved_test,
+            output_dir=resolved_out,
+            config=drift_cfg,
+            ml_client=ml_client,
+            data_label=data_label,
+            experiment_name=experiment_name,
+        )
+        typer.echo(f"Drift artifacts written to: {resolved_out}")
+        return
+
+    job_config = build_monitor_job_config(
+        test_data=resolved_test,
+        reference_data=resolved_ref,
+        endpoint_name=settings.endpoint_name,
+        deployment_name=settings.deployment_name,
+        scoring_uri=None,
+        auth_mode="key",
+        endpoint_key=None,
+        label_column=label_column,
+        batch_size=200,
+        max_retries=3,
+        request_timeout=30.0,
+        max_alerts=None,
+        psi_bins=psi_bins,
+        psi_threshold=psi_threshold,
+        ks_threshold=ks_threshold,
+        mode="drift",
+        compute=compute,
+        experiment_name=experiment_name,
+        settings=settings,
+    )
+    job = submit_monitor_job(ml_client, job_config)
+    typer.echo(f"Submitted drift job: {getattr(job, 'name', None)}")
+    if wait:
+        ml_client.jobs.stream(getattr(job, "name"))
+
+
+@app.command("monitor")
+def monitor_cmd(
+    test_data: Annotated[
+        str | None,
+        typer.Option("--test-data", help="Registered test data asset name or local path."),
+    ] = None,
+    ref_data: Annotated[
+        str | None,
+        typer.Option("--ref-data", help="Reference data asset name or local path."),
+    ] = None,
+    data_label: Annotated[
+        str | None,
+        typer.Option("--data-label", help="Optional data asset label."),
+    ] = None,
+    endpoint_name: Annotated[
+        str | None,
+        typer.Option("--endpoint-name", help="Endpoint name override."),
+    ] = None,
+    deployment_name: Annotated[
+        str | None,
+        typer.Option("--deployment-name", help="Deployment name override."),
+    ] = None,
+    scoring_uri: Annotated[
+        str | None,
+        typer.Option("--scoring-uri", help="Override scoring URI (skips endpoint lookup)."),
+    ] = None,
+    endpoint_key: Annotated[
+        str | None,
+        typer.Option("--endpoint-key", help="Endpoint key (falls back to env vars)."),
+    ] = None,
+    auth_mode: Annotated[
+        str,
+        typer.Option("--auth-mode", help="Auth mode for endpoint calls (key or aad)."),
+    ] = "key",
+    label_column: Annotated[
+        str,
+        typer.Option("--label-column", help="Label column name."),
+    ] = DEFAULT_LABEL_COLUMN,
+    out: Annotated[
+        str | None,
+        typer.Option("--out", help="Output directory for monitoring artifacts."),
+    ] = None,
+    batch_size: Annotated[
+        int,
+        typer.Option("--batch-size", help="Batch size for endpoint calls.", min=1),
+    ] = 200,
+    max_retries: Annotated[
+        int,
+        typer.Option("--max-retries", help="Max retries for endpoint calls.", min=0),
+    ] = 3,
+    request_timeout: Annotated[
+        float,
+        typer.Option("--request-timeout", help="Request timeout (seconds).", min=1.0),
+    ] = 30.0,
+    max_alerts: Annotated[
+        int | None,
+        typer.Option("--max-alerts", help="Optional max alerts override (top-k)."),
+    ] = None,
+    psi_bins: Annotated[
+        int,
+        typer.Option("--psi-bins", help="Number of PSI bins.", min=2),
+    ] = 10,
+    psi_threshold: Annotated[
+        float,
+        typer.Option("--psi-threshold", help="PSI drift threshold.", min=0.0),
+    ] = 0.2,
+    ks_threshold: Annotated[
+        float,
+        typer.Option("--ks-threshold", help="KS drift threshold.", min=0.0),
+    ] = 0.1,
+    sample_rows: Annotated[
+        int | None,
+        typer.Option("--sample-rows", help="Load only the first N rows (debug).", min=1),
+    ] = None,
+    mode: Annotated[
+        str,
+        typer.Option("--mode", help="monitor, evaluate, or drift"),
+    ] = "monitor",
+    experiment_name: Annotated[
+        str | None,
+        typer.Option("--experiment-name", help="MLflow experiment name override."),
+    ] = None,
+    local: Annotated[
+        bool,
+        typer.Option("--local/--submit", help="Run locally instead of submitting an Azure ML job."),
+    ] = False,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait/--no-wait", help="Stream job logs when submitting."),
+    ] = False,
+    compute: Annotated[
+        str | None,
+        typer.Option("--compute", help="Azure ML compute target override."),
+    ] = None,
+) -> None:
+    """Run evaluation + drift monitoring."""
+    from fraud_detection.monitoring.drift import DriftConfig
+    from fraud_detection.monitoring.endpoint_client import EndpointConfig
+    from fraud_detection.monitoring.evaluate_endpoint import EvaluationConfig
+    from fraud_detection.monitoring.monitor import MonitorConfig, MonitorMode, run_monitoring
+    from fraud_detection.monitoring.submit_monitor import build_monitor_job_config, submit_monitor_job
+    from fraud_detection.registry.prod_model import mlflow_tracking_uri
+
+    settings = get_settings()
+    ml_client = get_ml_client()
+
+    resolved_test = (test_data or settings.registered_test).strip()
+    resolved_ref = (ref_data or settings.monitor_reference_data or settings.registered_dataset_name).strip()
+    resolved_endpoint = _normalize_optional_str(endpoint_name) or settings.endpoint_name
+    resolved_deployment = _normalize_optional_str(deployment_name) or settings.deployment_name
+    resolved_scoring = _normalize_optional_str(scoring_uri)
+    resolved_key = _normalize_optional_str(endpoint_key)
+    resolved_out = Path(out) if out else (ROOT_DIR / "outputs" / "monitoring")
+    resolved_max_alerts = _normalize_positive_int(max_alerts)
+
+    mode_value = (mode or "monitor").strip().lower()
+    if mode_value not in {"monitor", "evaluate", "drift"}:
+        raise typer.BadParameter("--mode must be one of: monitor, evaluate, drift")
+
+    if local:
+        mlflow_tracking_uri(ml_client)
+        endpoint_cfg = EndpointConfig(
+            endpoint_name=resolved_endpoint,
+            deployment_name=resolved_deployment,
+            scoring_uri=resolved_scoring,
+            auth_mode=auth_mode,
+            endpoint_key=resolved_key,
+            batch_size=batch_size,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+        )
+        eval_cfg = EvaluationConfig(label_column=label_column, sample_rows=sample_rows)
+        drift_cfg = DriftConfig(
+            label_column=label_column,
+            psi_bins=psi_bins,
+            psi_threshold=psi_threshold,
+            ks_threshold=ks_threshold,
+            sample_rows=sample_rows,
+        )
+        monitor_cfg = MonitorConfig(
+            test_data=resolved_test,
+            reference_data=resolved_ref,
+            output_dir=resolved_out,
+            endpoint_config=endpoint_cfg,
+            max_alerts=resolved_max_alerts,
+            evaluation=eval_cfg,
+            drift=drift_cfg,
+            mode=MonitorMode(mode_value),
+            experiment_name=experiment_name,
+        )
+        run_monitoring(config=monitor_cfg, ml_client=ml_client, data_label=data_label)
+        typer.echo(f"Monitoring artifacts written to: {resolved_out}")
+        return
+
+    job_config = build_monitor_job_config(
+        test_data=resolved_test,
+        reference_data=resolved_ref,
+        endpoint_name=resolved_endpoint,
+        deployment_name=resolved_deployment,
+        scoring_uri=resolved_scoring,
+        auth_mode=auth_mode,
+        endpoint_key=resolved_key,
+        label_column=label_column,
+        batch_size=batch_size,
+        max_retries=max_retries,
+        request_timeout=request_timeout,
+        max_alerts=resolved_max_alerts,
+        psi_bins=psi_bins,
+        psi_threshold=psi_threshold,
+        ks_threshold=ks_threshold,
+        mode=mode_value,
+        compute=compute,
+        experiment_name=experiment_name,
+        settings=settings,
+    )
+    job = submit_monitor_job(ml_client, job_config)
+    typer.echo(f"Submitted monitoring job: {getattr(job, 'name', None)}")
+    if wait:
+        ml_client.jobs.stream(getattr(job, "name"))
 
 
 def run() -> None:

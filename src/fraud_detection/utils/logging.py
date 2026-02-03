@@ -3,7 +3,14 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+try:
+    from datetime import UTC as _UTC  # type: ignore
+except ImportError:  # pragma: no cover - Python < 3.11
+    _UTC = timezone.utc
+
+UTC = _UTC
 
 _LOGGER_NAME = "fraud_detection"
 _STANDARD_LOG_ATTRS = {

@@ -1,0 +1,21 @@
+name: fraud-monitor-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - azure-ai-ml==1.30.0
+      - azure-identity==1.17.0
+      - mltable==1.6.3
+      - pandas==2.3.3
+      - numpy==1.26.4
+      - scikit-learn==1.8.0
+      - matplotlib==3.10.8
+      - mlflow==3.7.0
+      - azureml-mlflow==1.60.0
+      - requests==2.32.5
+      - typer==0.20.0
+      - pydantic==2.12.5
+      - pydantic-settings==2.12.0
+      - pyarrow==22.0.0

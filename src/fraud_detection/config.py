@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     training_compute_cluster_name: str = Field(default="training-cluster")
     training_compute_cluster_type: str = Field(default="Standard_D2s_v3")
     training_compute_cluster_node_max_count: int = Field(default=3)
-    data_compute_cluster_name: str = Field(default="data-cluster")
-    data_compute_cluster_type: str = Field(default="Standard_D3_v2")
-    data_compute_cluster_node_max_count: int = Field(default=1)
+    pipeline_compute_cluster_name: str = Field(default="pipeline-cluster")
+    pipeline_compute_cluster_type: str = Field(default="Standard_D3_v2")
+    pipeline_compute_cluster_node_max_count: int = Field(default=1)
     compute_idle_time_before_scale_down: int = Field(default=200)
     deployment_instance_type: str = Field(default="Standard_DS2_v2")
     deployment_instance_count: int = Field(default=2)
@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     registered_train: str = Field(default="fraud-detection-train-data")
     registered_test: str = Field(default="fraud-detection-test-data")
     serving_scalers_name: str = Field(default="fraud-detection-scalers")
+    monitor_reference_data: str | None = Field(
+        default=None, validation_alias=AliasChoices("MONITOR_REFERENCE_DATA")
+    )
     
     # Metric settings
     default_metric_automl_train: str = Field(default="average_precision_score_weighted")
@@ -60,6 +63,11 @@ class Settings(BaseSettings):
     prod_model_name: str = Field(default="fraud-detection-prod-model")
     endpoint_name: str = Field(default="fraud-detection-app")
     deployment_name: str = Field(default='blue')
+    container_app_name: str = Field(default="fraud-detection-app-ca")
+    container_app_environment: str = Field(default="fraud-detection-ca-env")
+    container_app_image_name: str = Field(default="fraud-detection-app")
+    container_registry_name: str | None = Field(default=None)
+    container_app_port: int = Field(default=8000)
 
     # Github settings
     github_owner: str | None = Field(default=None, validation_alias=AliasChoices("GITHUB_OWNER"))

@@ -90,7 +90,7 @@ class LGBMSweepConfig:
     val_size: float = 0.2
     primary_metric: str = "average_precision_score_macro"
 
-    max_total_trials: int = 250
+    max_total_trials: int = 300
     max_concurrent_trials: int = 3
     timeout_minutes: int = 300
     sampling_algorithm: SamplingAlgorithm = RandomSamplingAlgorithm(seed=999)

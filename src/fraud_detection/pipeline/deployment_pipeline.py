@@ -102,6 +102,8 @@ def create_deployment_pipeline_job(
     compare_metric: str | None = None,
     experiments: str | None = None,
     dry_run: bool = False,
+    force_deploy: bool = False,
+    skip_env: bool = False,
     component_version: str | None = None,
     serve_component_version: str | None = None,
     experiment_name: str | None = None,
@@ -138,13 +140,15 @@ def create_deployment_pipeline_job(
     @pipeline(
         name="deployment_pipeline",
         description="Pipeline for selecting, promoting, and serving the best model to production.",
-        default_compute=settings.data_compute_cluster_name,
+        default_compute=settings.pipeline_compute_cluster_name,
         experiment_name=experiment_name or "deployment_pipeline",
     )
     def _deployment_pipeline(
         compare_metric: str,
         experiments: str,
         dry_run: str,
+        force_deploy: str,
+        skip_env: str,
         prod_model_name: str,
         endpoint_name: str,
         deployment_name: str,
@@ -157,16 +161,30 @@ def create_deployment_pipeline_job(
             experiments=experiments,
             dry_run=dry_run,
         )
-        serve_job = serve_component(
-            new_promotion=promote_job.outputs.new_promotion,
-            prod_model_name=prod_model_name,
-            endpoint_name=endpoint_name,
-            deployment_name=deployment_name,
-            scaler_dir=scaler_dir,
-            max_alerts=max_alerts,
-            traffic_percentage=traffic_percentage,
-            dry_run=dry_run,
-        )
+        serve_inputs = {
+            "new_promotion": promote_job.outputs.new_promotion,
+            "prod_model_name": prod_model_name,
+            "endpoint_name": endpoint_name,
+            "deployment_name": deployment_name,
+            "scaler_dir": scaler_dir,
+            "max_alerts": max_alerts,
+            "traffic_percentage": traffic_percentage,
+            "dry_run": dry_run,
+        }
+        component_inputs = getattr(serve_component, "inputs", None)
+        optional_flags = {
+            "force_deploy": force_deploy,
+            "skip_env": skip_env,
+        }
+        for key, value in optional_flags.items():
+            if isinstance(component_inputs, dict) and key in component_inputs:
+                serve_inputs[key] = value
+            elif value == "true":
+                raise ValueError(
+                    f"{key} requested but serve_prod_model component lacks the input. "
+                    "Re-register the component."
+                )
+        serve_job = serve_component(**serve_inputs)
         return {
             "production_info": promote_job.outputs.production_info,
             "new_promotion": promote_job.outputs.new_promotion,
@@ -182,6 +200,8 @@ def create_deployment_pipeline_job(
         compare_metric=resolved_metric,
         experiments=resolved_experiments,
         dry_run="true" if dry_run else "false",
+        force_deploy="true" if force_deploy else "false",
+        skip_env="true" if skip_env else "false",
         prod_model_name=resolved_prod_model_name,
         endpoint_name=resolved_endpoint_name,
         deployment_name=resolved_deployment_name,
@@ -200,6 +220,8 @@ def submit_deployment_pipeline_job(
     compare_metric: str | None = None,
     experiments: str | None = None,
     dry_run: bool = False,
+    force_deploy: bool = False,
+    skip_env: bool = False,
     component_version: str | None = None,
     serve_component_version: str | None = None,
     experiment_name: str | None = None,
@@ -213,16 +235,18 @@ def submit_deployment_pipeline_job(
     ensure_compute: bool = True,
 ) -> object:
     """Submit the deployment pipeline job to Azure ML."""
-    from fraud_detection.utils.compute import ensure_data_compute
+    from fraud_detection.utils.compute import ensure_pipeline_compute
 
     ml_client = ml_client or get_ml_client()
     if ensure_compute:
-        ensure_data_compute(ml_client)
+        ensure_pipeline_compute(ml_client)
 
     pipeline_job = create_deployment_pipeline_job(
         compare_metric=compare_metric,
         experiments=experiments,
         dry_run=dry_run,
+        force_deploy=force_deploy,
+        skip_env=skip_env,
         component_version=component_version,
         serve_component_version=serve_component_version,
         experiment_name=experiment_name,

@@ -19,6 +19,7 @@ __pycache__/
 mlruns/
 outputs/
 logs/
+model_artifact/
 
 
 # Distribution / packaging

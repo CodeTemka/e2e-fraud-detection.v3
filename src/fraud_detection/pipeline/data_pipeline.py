@@ -61,7 +61,7 @@ def create_data_pipeline_job(
     @pipeline(
         name="data_validation_and_preparation_pipeline",
         description="Pipeline for validating data and preparing training splits.",
-        default_compute=settings.data_compute_cluster_name,
+        default_compute=settings.pipeline_compute_cluster_name,
         experiment_name=experiment_name or "data_pipeline",
     )
     def _data_pipeline(registered_data: str, label_col: str, test_ratio: float, seed: int):
@@ -101,11 +101,11 @@ def submit_data_pipeline_job(
 ) -> object:
     """Submit the data pipeline job to Azure ML."""
     from fraud_detection.azure.client import get_ml_client
-    from fraud_detection.utils.compute import ensure_data_compute
+    from fraud_detection.utils.compute import ensure_pipeline_compute
 
     ml_client = ml_client or get_ml_client()
     if ensure_compute:
-        ensure_data_compute(ml_client)
+        ensure_pipeline_compute(ml_client)
 
     pipeline_job = create_data_pipeline_job(
         data_name=data_name,
