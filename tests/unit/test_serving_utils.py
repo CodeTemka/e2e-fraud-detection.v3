@@ -18,9 +18,7 @@ def test_extract_predictions_handles_list_payload():
 
 
 def test_extract_predictions_handles_nested_payload():
-    payload = {
-        "results": {"predictions": [1, 0], "probabilities": [0.9, 0.1], "threshold_used": 0.5}
-    }
+    payload = {"results": {"predictions": [1, 0], "probabilities": [0.9, 0.1], "threshold_used": 0.5}}
     result = extract_predictions(payload)
     assert result.threshold_used == 0.5 and result.predictions == [1, 0]
 

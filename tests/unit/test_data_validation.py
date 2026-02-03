@@ -51,6 +51,4 @@ def test_collect_validation_metrics_counts_missing_and_non_numeric():
         df,
         options=ValidationOptions(required_columns=("Time", "Amount", "Class", "V1", "V2")),
     )
-    assert metrics["validation.missing_columns_count"] == 1.0 and metrics[
-        "validation.non_numeric_columns_count"
-    ] == 1.0
+    assert metrics["validation.missing_columns_count"] == 1.0 and metrics["validation.non_numeric_columns_count"] == 1.0

@@ -60,11 +60,9 @@ def _try_delete_existing_computes(
                 deleted.append(compute.name)
         except Exception as exc:  # pragma: no cover - best effort cleanup
             logger.warning(
-                "Falied to delete compute during quota cleanup",
-                extra={"compute_name": compute.name, "error": str(exc)}
+                "Falied to delete compute during quota cleanup", extra={"compute_name": compute.name, "error": str(exc)}
             )
 
-        
         if len(deleted) >= limit:
             break
 
@@ -80,7 +78,7 @@ def ensure_compute(
     max_instances: int = 1,
     idle_time_before_scale_down: int = 200,
     tags: dict[str, str] | None = None,
-    allow_quota_cleanup: bool = True, 
+    allow_quota_cleanup: bool = True,
 ) -> Any:
     """Ensure an Azure ML compute cluster exists, creating it if needed.
 
@@ -101,9 +99,8 @@ def ensure_compute(
             },
         )
 
-    
     cluster = AmlCompute(
-        name = name,
+        name=name,
         size=size,
         min_instances=min_instances,
         max_instances=max_instances,
@@ -113,7 +110,7 @@ def ensure_compute(
 
     def _create() -> Any:
         return ml_client.compute.begin_create_or_update(cluster).result()
-    
+
     try:
         return _create()
     except HttpResponseError as exc:
@@ -121,14 +118,12 @@ def ensure_compute(
             raise
 
         logger.warning(
-            "Compute creation falied due to quota; attempting cleanup",
-            extra={"compute_name": name, "error": str(exc)}
+            "Compute creation falied due to quota; attempting cleanup", extra={"compute_name": name, "error": str(exc)}
         )
 
         deleted = _try_delete_existing_computes(ml_client, exclude=[name])
         logger.info("Deleted computes to free quota", extra={"deleted": deleted})
         return _create()
-    
 
 
 def ensure_training_compute(
@@ -148,11 +143,7 @@ def ensure_training_compute(
         name=name or settings.training_compute_cluster_name,
         size=size or settings.training_compute_cluster_type,
         min_instances=0 if min_instances is None else min_instances,
-        max_instances=(
-            settings.training_compute_cluster_node_max_count
-            if max_instances is None
-            else max_instances
-        ),
+        max_instances=(settings.training_compute_cluster_node_max_count if max_instances is None else max_instances),
         idle_time_before_scale_down=(
             settings.compute_idle_time_before_scale_down
             if idle_time_before_scale_down is None

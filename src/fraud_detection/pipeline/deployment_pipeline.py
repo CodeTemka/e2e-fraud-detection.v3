@@ -181,8 +181,7 @@ def create_deployment_pipeline_job(
                 serve_inputs[key] = value
             elif value == "true":
                 raise ValueError(
-                    f"{key} requested but serve_prod_model component lacks the input. "
-                    "Re-register the component."
+                    f"{key} requested but serve_prod_model component lacks the input. " "Re-register the component."
                 )
         serve_job = serve_component(**serve_inputs)
         return {

@@ -85,7 +85,6 @@ class AutoMLJobConfig:
     idempotency_key: str | None = None
 
 
-
 def _metric_check(metric: str | ClassificationPrimaryMetrics) -> str:
     metric_str = metric.value if isinstance(metric, ClassificationPrimaryMetrics) else str(metric)
     normalized = metric_str.strip().replace("-", "_")
@@ -106,7 +105,7 @@ def create_automl_job(config: AutoMLJobConfig) -> Any:
         raise ValueError("config.experiment_name is empty.")
     if not config.target_column:
         raise ValueError("config.target_column is empty.")
-    
+
     ml_client = get_ml_client()
     compute_target = (config.compute or "").strip()
     if not compute_target:
@@ -128,7 +127,7 @@ def create_automl_job(config: AutoMLJobConfig) -> Any:
         enable_model_explainability=True,
         tags=config.tags,
     )
-    
+
     job.set_limits(
         timeout_minutes=config.timeout_minutes,
         trial_timeout_minutes=config.trial_timeout_minutes,
@@ -143,8 +142,7 @@ def create_automl_job(config: AutoMLJobConfig) -> Any:
         job.set_training(allowed_training_algorithms=list(config.allowed_algorithms))
 
     idempotency_key = config.idempotency_key or build_idempotency_key(
-        config.experiment_name,
-        str(config.primary_metric)
+        config.experiment_name, str(config.primary_metric)
     )
 
     desired_name = config.job_name or build_job_name("automl", idempotency_key)
@@ -167,7 +165,6 @@ def submit_job(ml_client: MLClient, job: Any) -> str:
     returned_job = ml_client.jobs.create_or_update(job)
     logger.info("Submitting AutoML job", extra={"job_name": returned_job.name})
     return returned_job.name
-
 
 
 def automl_job_builder(
@@ -204,4 +201,11 @@ def automl_job_builder(
     )
 
 
-__all__ = ["AutoMLJobConfig", "create_automl_job", "submit_job", "automl_job_builder", "resolve_latest_data_version", "parse_version"]
+__all__ = [
+    "AutoMLJobConfig",
+    "create_automl_job",
+    "submit_job",
+    "automl_job_builder",
+    "resolve_latest_data_version",
+    "parse_version",
+]

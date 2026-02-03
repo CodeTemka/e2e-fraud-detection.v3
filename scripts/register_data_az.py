@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 def register_local_data() -> None:
     settings = get_settings().require_az_id()
     ml_client = get_ml_client(settings=settings)
-    
+
     dataset_name = settings.registered_dataset_name
     data_path = settings.local_data_path
     version = "1"
@@ -25,7 +25,6 @@ def register_local_data() -> None:
     except ResourceNotFoundError:
         pass  # doesn't exist yet -> create
 
-    
     data_asset = Data(
         name=dataset_name,
         version=version,

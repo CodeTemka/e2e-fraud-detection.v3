@@ -35,9 +35,7 @@ def _get_public_key(owner: str, repo: str, token: str) -> tuple[str, str]:
             f"({response.status_code} - {response.text})"
         )
     if response.status_code != 200:
-        raise RuntimeError(
-            f"Failed to get public key: {response.status_code} - {response.text}"
-        )
+        raise RuntimeError(f"Failed to get public key: {response.status_code} - {response.text}")
 
     data = response.json()
     return data["key_id"], data["key"]
@@ -69,8 +67,7 @@ def set_github_secret(
 
     if not owner or not repo:
         raise ValueError(
-            "Missing GitHub repository. Set GITHUB_OWNER and GITHUB_REPO "
-            "or GITHUB_REPOSITORY=owner/repo."
+            "Missing GitHub repository. Set GITHUB_OWNER and GITHUB_REPO " "or GITHUB_REPOSITORY=owner/repo."
         )
     if not token:
         raise ValueError("Missing GitHub token. Set GITHUB_TOKEN in .env or the environment.")
@@ -86,9 +83,7 @@ def set_github_secret(
     response = requests.put(url, headers=_headers(token), json=payload, timeout=30)
 
     if response.status_code not in (201, 204):
-        raise RuntimeError(
-            f"Failed to upload secret '{name}': {response.status_code} - {response.text}"
-        )
+        raise RuntimeError(f"Failed to upload secret '{name}': {response.status_code} - {response.text}")
 
     print(f"OK: secret '{name}' uploaded.")
 

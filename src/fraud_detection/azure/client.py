@@ -13,6 +13,7 @@ from fraud_detection.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+
 def build_default_credential() -> DefaultAzureCredential:
     """Create a default azure credential suitable for CI and local use."""
 

@@ -255,9 +255,7 @@ def build_monitor_job_config(
     settings: Settings | None = None,
 ) -> MonitorJobConfig:
     resolved_settings = settings or get_settings()
-    env_hash = _env_hash_from_file(
-        ROOT_DIR / "src" / "fraud_detection" / "monitoring" / "monitor_env.yaml"
-    )
+    env_hash = _env_hash_from_file(ROOT_DIR / "src" / "fraud_detection" / "monitoring" / "monitor_env.yaml")
     idempotency_key = build_idempotency_key(endpoint_name, mode, env_hash)
     job_name = build_job_name("monitor", idempotency_key)
 

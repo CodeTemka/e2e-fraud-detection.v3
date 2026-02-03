@@ -405,9 +405,7 @@ def _prepare_features(df: pd.DataFrame, assets: ModelAssets) -> pd.DataFrame:
     return df[feature_columns]
 
 
-def apply_top_k_threshold(
-    probabilities: np.ndarray, max_alerts: int
-) -> tuple[list[int], float, int, list[int]]:
+def apply_top_k_threshold(probabilities: np.ndarray, max_alerts: int) -> tuple[list[int], float, int, list[int]]:
     if probabilities.size == 0:
         return [], 1.0, 0, []
 
@@ -452,10 +450,7 @@ def init() -> None:
     scalers = _load_scalers(scaler_dir, metadata)
 
     feature_columns = list(
-        metadata.get("features")
-        or metadata.get("feature_columns")
-        or metadata.get("feature_list")
-        or []
+        metadata.get("features") or metadata.get("feature_columns") or metadata.get("feature_list") or []
     )
     label_column = str(metadata.get("label_column") or LABEL_COLUMN_DEFAULT)
     id_columns = list(metadata.get("id_columns") or ID_COLUMNS)

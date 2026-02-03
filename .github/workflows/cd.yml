@@ -1,0 +1,89 @@
+# Manual CD workflow keeps deployments controlled; enable push triggers only with branch protection.
+name: CD
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy & Monitor (Azure ML)
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      PYTHONUTF8: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      MPLBACKEND: "Agg"
+      SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      WORKSPACE_NAME: ${{ secrets.AZURE_WORKSPACE_NAME }}
+      TEST_DATA_ASSET_NAME: ${{ vars.TEST_DATA_ASSET_NAME }}
+      REF_DATA_ASSET_NAME: ${{ vars.REF_DATA_ASSET_NAME }}
+      ENDPOINT_NAME: ${{ vars.ENDPOINT_NAME }}
+      DEPLOYMENT_NAME: ${{ vars.DEPLOYMENT_NAME }}
+      LABEL_COLUMN: ${{ vars.LABEL_COLUMN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Verify CLI
+        run: fraud-cli --help
+
+      - name: Azure login (service principal)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Verify Azure session
+        run: |
+          set -euo pipefail
+          az account set --subscription "$SUBSCRIPTION_ID"
+          az account show --output table
+
+      - name: Deploy (Azure ML pipeline)
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          fraud-cli run-deployment-pipeline --wait
+
+      - name: Post-deployment monitoring
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "${TEST_DATA_ASSET_NAME:-}" ]; then
+            args+=("--test-data" "$TEST_DATA_ASSET_NAME")
+          fi
+          if [ -n "${REF_DATA_ASSET_NAME:-}" ]; then
+            args+=("--ref-data" "$REF_DATA_ASSET_NAME")
+          fi
+          if [ -n "${ENDPOINT_NAME:-}" ]; then
+            args+=("--endpoint-name" "$ENDPOINT_NAME")
+          fi
+          if [ -n "${DEPLOYMENT_NAME:-}" ]; then
+            args+=("--deployment-name" "$DEPLOYMENT_NAME")
+          fi
+          if [ -n "${LABEL_COLUMN:-}" ]; then
+            args+=("--label-column" "$LABEL_COLUMN")
+          fi
+          fraud-cli monitor --mode monitor --submit --wait "${args[@]}"

@@ -72,7 +72,7 @@ def split_data(
     stratify: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split data into train and test sets."""
-    
+
     if df is None or not isinstance(df, pd.DataFrame):
         raise ValueError("Input data must be a valid pandas DataFrame.")
     if df.empty:
@@ -81,7 +81,7 @@ def split_data(
         raise ValueError("Test size must be between 0 and 1.")
     if stratify and label_col not in df.columns:
         raise ValueError(f"Label column '{label_col}' not found in DataFrame.")
-    
+
     stratify_values = df[label_col] if stratify else None
 
     if test > 0:
@@ -94,7 +94,7 @@ def split_data(
     else:
         train_df = df.copy()
         test_df = pd.DataFrame(columns=df.columns)
-    
+
     return train_df, test_df
 
 
@@ -128,12 +128,7 @@ def _write_mltable_from_dataframe(df: pd.DataFrame, output_dir: Path, *, filenam
     df.to_parquet(data_path, index=False)
 
     mltable_path = output_dir / "MLTable"
-    mltable_contents = (
-        "paths:\n"
-        f"  - file: ./{filename}\n"
-        "transformations:\n"
-        "  - read_parquet: {}\n"
-    )
+    mltable_contents = "paths:\n" f"  - file: ./{filename}\n" "transformations:\n" "  - read_parquet: {}\n"
     mltable_path.write_text(mltable_contents, encoding="utf-8")
 
 
@@ -176,7 +171,7 @@ def _register_data_asset(
 
 
 def save_outputs(
-    ml_client: MLClient, 
+    ml_client: MLClient,
     *,
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,

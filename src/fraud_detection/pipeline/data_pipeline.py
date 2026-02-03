@@ -72,7 +72,7 @@ def create_data_pipeline_job(
             seed=seed,
             is_valid=validation_job.outputs.is_valid,
         )
-    
+
     pipeline_job = _data_pipeline(
         registered_data=data_name,
         label_col=label_col,
@@ -82,7 +82,7 @@ def create_data_pipeline_job(
 
     azure_env_vars = resolve_azure_env_vars(settings=settings)
     _apply_env_vars_to_jobs(pipeline_job, azure_env_vars)
-    
+
     return pipeline_job
 
 

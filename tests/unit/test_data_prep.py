@@ -37,9 +37,7 @@ def test_fit_scalers_and_transform_updates_columns(sample_train_data):
     assert set(scalers.keys()) == {"Amount", "Time"} and not transformed.equals(sample_train_data)
 
 
-def test_save_outputs_writes_metadata_and_registers_assets(
-    tmp_path, sample_train_data, fake_ml_client, monkeypatch
-):
+def test_save_outputs_writes_metadata_and_registers_assets(tmp_path, sample_train_data, fake_ml_client, monkeypatch):
     settings = SimpleNamespace(
         serving_scalers_name="fraud-scalers",
         registered_train="fraud-train",

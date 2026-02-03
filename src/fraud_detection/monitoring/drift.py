@@ -183,17 +183,25 @@ def run_drift_check(
     resolved = config or DriftConfig()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    ref_df = reference_df if reference_df is not None else load_dataframe(
-        reference_data,
-        ml_client=ml_client,
-        data_label=data_label,
-        sample_rows=resolved.sample_rows,
+    ref_df = (
+        reference_df
+        if reference_df is not None
+        else load_dataframe(
+            reference_data,
+            ml_client=ml_client,
+            data_label=data_label,
+            sample_rows=resolved.sample_rows,
+        )
     )
-    cur_df = current_df if current_df is not None else load_dataframe(
-        current_data,
-        ml_client=ml_client,
-        data_label=data_label,
-        sample_rows=resolved.sample_rows,
+    cur_df = (
+        current_df
+        if current_df is not None
+        else load_dataframe(
+            current_data,
+            ml_client=ml_client,
+            data_label=data_label,
+            sample_rows=resolved.sample_rows,
+        )
     )
 
     if feature_columns is None:

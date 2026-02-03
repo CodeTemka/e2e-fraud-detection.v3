@@ -279,29 +279,21 @@ def create_xgb_sweep_job(config: XGBSweepConfig, *, environment: str) -> Any:
         train_data=config.training_data,
         label_col=config.label_column,
         val_size=config.val_size,
-
         # Focus learning rate around previously strong runs
         learning_rate=Uniform(min_value=0.02, max_value=0.2),
-
         # Favor deeper trees that have historically performed best
         max_depth=Choice(values=[4, 5, 6, 7, 8]),
-
         # Emphasize higher boosting rounds; early stopping will cut back if needed
         n_estimators=Choice(values=[600, 800, 1000, 1200, 1400, 1600]),
-
         # Avoid overly aggressive subsampling / colsampling
         subsample=Uniform(min_value=0.65, max_value=0.9),
         colsample_bytree=Uniform(min_value=0.65, max_value=0.9),
-
         # Exclude very large child weights that underfit
         min_child_weight=Uniform(min_value=1.0, max_value=12.0),
-
         # Keep gamma in a low-to-moderate range
         gamma=Uniform(min_value=0.0, max_value=2.0),
-
         # Cap L2 regularization to avoid excessive shrinkage
         reg_lambda=Uniform(min_value=0.5, max_value=100.0),
-
         random_state=config.random_state,
     )
 

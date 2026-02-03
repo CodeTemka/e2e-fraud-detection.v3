@@ -26,9 +26,7 @@ CANONICAL_METRIC_KEYS: list[str] = [
     "metrics.balanced_accuracy",
 ]
 
-CANONICAL_METRICS_BARE = sorted(
-    {m[len("metrics.") :] for m in CANONICAL_METRIC_KEYS if m.startswith("metrics.")}
-)
+CANONICAL_METRICS_BARE = sorted({m[len("metrics.") :] for m in CANONICAL_METRIC_KEYS if m.startswith("metrics.")})
 
 ALIAS_TO_CANONICAL = {
     "average_precision": "metrics.average_precision_score_macro",

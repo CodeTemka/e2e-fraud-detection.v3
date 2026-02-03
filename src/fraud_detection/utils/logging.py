@@ -1,4 +1,5 @@
 """Centralized logging configuration"""
+
 from __future__ import annotations
 
 import json
@@ -38,6 +39,7 @@ _STANDARD_LOG_ATTRS = {
     "threadName",
 }
 
+
 class JsonFormatter(logging.Formatter):
     """Format logs as structured JSON for downstream ingestion."""
 
@@ -48,9 +50,9 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        
+
         extras = {
-            key: value 
+            key: value
             for key, value in record.__dict__.items()
             if key not in _STANDARD_LOG_ATTRS and not key.startswith("_")
         }
@@ -63,7 +65,7 @@ class JsonFormatter(logging.Formatter):
 
         payload.update(extras)
         return json.dumps(payload)
-    
+
 
 def get_logger(name: str | None = None) -> logging.Logger:
     """Get a logger for the fraud_detection project (configured once)."""
@@ -74,7 +76,7 @@ def get_logger(name: str | None = None) -> logging.Logger:
         handler.setFormatter(JsonFormatter())
         root.addHandler(handler)
         root.setLevel(logging.INFO)
-        root.propagate = False # avoid double logging via global root logger
+        root.propagate = False  # avoid double logging via global root logger
 
     # Return either the root logger or a child logger
     logger_name = name or _LOGGER_NAME

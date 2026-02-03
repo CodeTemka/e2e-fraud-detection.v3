@@ -206,12 +206,8 @@ def _resolve_scoring_env_config(
 ) -> tuple[str, Path, str | None]:
     model_source = (model.tags.get("model_source", "") or "").strip().lower()
     if model_source == "automl":
-        env_name = str(
-            getattr(settings, "scoring_env_automl_name", None) or DEFAULT_SCORING_ENV_AUTOML_NAME
-        )
-        env_file = Path(
-            getattr(settings, "scoring_env_automl_file", None) or DEFAULT_SCORING_ENV_AUTOML_FILE
-        )
+        env_name = str(getattr(settings, "scoring_env_automl_name", None) or DEFAULT_SCORING_ENV_AUTOML_NAME)
+        env_file = Path(getattr(settings, "scoring_env_automl_file", None) or DEFAULT_SCORING_ENV_AUTOML_FILE)
         env_version = getattr(settings, "scoring_env_automl_version", None)
         return env_name, env_file, env_version
 
@@ -427,8 +423,7 @@ def preflight_endpoint(
         endpoint = get_endpoint(ml_client, endpoint_name)
     except ResourceNotFoundError as exc:
         raise RuntimeError(
-            f"Endpoint '{endpoint_name}' does not exist. "
-            "Create it first (CLI or Azure ML UI) before deploying."
+            f"Endpoint '{endpoint_name}' does not exist. " "Create it first (CLI or Azure ML UI) before deploying."
         ) from exc
 
     state_raw = getattr(endpoint, "provisioning_state", None)

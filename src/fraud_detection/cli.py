@@ -99,9 +99,7 @@ def _normalize_alert_rate(value: float | None) -> float | None:
 def _run_az(command: list[str]) -> dict[str, object]:
     az_path = os.environ.get("AZ_PATH") or shutil.which("az")
     if not az_path:
-        raise typer.BadParameter(
-            "Azure CLI 'az' not found. Install Azure CLI or set AZ_PATH to the az executable."
-        )
+        raise typer.BadParameter("Azure CLI 'az' not found. Install Azure CLI or set AZ_PATH to the az executable.")
 
     command = [az_path, *command[1:]]
     result = subprocess.run(command, check=False, capture_output=True, text=True)
@@ -137,7 +135,6 @@ def _get_provider_state(namespace: str, subscription_id: str) -> str | None:
     )
     state = payload.get("registrationState") if isinstance(payload, dict) else None
     return str(state) if state is not None else None
-
 
 
 @app.command()
@@ -266,7 +263,6 @@ def validate_data(
     typer.echo("Data validation passed." if is_valid else "Data validation failed.")
 
 
-
 @app.command()
 def prep_data_for_train(
     data_name: Annotated[
@@ -381,9 +377,8 @@ def prep_data_for_train(
     except Exception as exc:
         logger.exception("Data preparation for training failed", extra={"dataset_name": dataset_name})
         raise typer.BadParameter(str(exc)) from exc
-    
-    typer.echo("Data preparation for training completed successfully.")
 
+    typer.echo("Data preparation for training completed successfully.")
 
 
 @app.command()
@@ -448,7 +443,6 @@ def run_data_pipeline(
         ml_client.jobs.stream(job.name)
 
 
-
 @app.command()
 def train_automl(
     metric: Annotated[
@@ -505,12 +499,16 @@ def train_automl(
     typer.echo(f"Submitted AutoML job: {job_name}")
 
 
-
 @app.command()
 def train_xgb(
-    train_data: Annotated[str | None, typer.Option("--train_data", help="Registered name of training data asset")] = None,
+    train_data: Annotated[
+        str | None, typer.Option("--train_data", help="Registered name of training data asset")
+    ] = None,
     metric: Annotated[
-        str, typer.Option("--metric", help="Evaluation metric to use for sweep (average_precision_score_macro or AUC_macro)")
+        str,
+        typer.Option(
+            "--metric", help="Evaluation metric to use for sweep (average_precision_score_macro or AUC_macro)"
+        ),
     ] = "average_precision_score_macro",
     val_size: Annotated[float, typer.Option("--val_size", help="Fraction of data used for validation split")] = 0.2,
     compute: Annotated[str | None, typer.Option("--compute", help="Compute target for task")] = None,
@@ -572,10 +570,11 @@ def train_xgb(
     typer.echo(f"Submitted XGBoost sweep job: {job_name}")
 
 
-
 @app.command()
 def train_lgbm(
-    train_data: Annotated[str | None, typer.Option("--train_data", help="Registered name of training data asset")] = None,
+    train_data: Annotated[
+        str | None, typer.Option("--train_data", help="Registered name of training data asset")
+    ] = None,
     metric: Annotated[
         str,
         typer.Option("--metric", help="Sweep metric (average_precision_score_macro or AUC_macro)"),
@@ -638,7 +637,6 @@ def train_lgbm(
 
     job_name = submit_lgbm_sweep_job(ml_client, config)
     typer.echo(f"Submitted LightGBM sweep job: {job_name}")
-
 
 
 @app.command("promote-prod-model")
@@ -706,7 +704,6 @@ def promote_prod_model(
         _write_text(Path(new_promotion), "true" if result.decision == "promote" else "false")
 
     typer.echo(f"Promotion decision: {result.decision}")
-
 
 
 @app.command("run-deployment-pipeline")
@@ -1013,6 +1010,7 @@ def serve_prod_model(
     from fraud_detection.serving.serve_prod_model import (
         serve_prod_model as deploy_prod_model,
     )
+
     settings = get_settings()
     ml_client = get_ml_client()
 

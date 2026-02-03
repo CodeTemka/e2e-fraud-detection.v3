@@ -104,7 +104,9 @@ def main(
     random_state: Annotated[int, typer.Option("--random_state")] = 42,
     early_stopping_rounds: Annotated[int, typer.Option("--early_stopping_rounds")] = 100,
     dataset_version: Annotated[str | None, typer.Option("--dataset_version")] = None,
-    output_dir: Annotated[str, typer.Option("--output_dir", help="Output folder (URI_FOLDER in Azure ML).")] = "outputs",
+    output_dir: Annotated[
+        str, typer.Option("--output_dir", help="Output folder (URI_FOLDER in Azure ML).")
+    ] = "outputs",
 ) -> None:
     if not (0.0 < val_size < 1.0):
         raise ValueError("--val_size must be between 0 and 1 (exclusive).")

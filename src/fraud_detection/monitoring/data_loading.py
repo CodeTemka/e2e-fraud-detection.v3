@@ -115,7 +115,9 @@ def load_dataframe(
                 table = table.take(sample_rows)
             return table.to_pandas_dataframe()
         except Exception as exc:
-            logger.warning("Failed to load MLTable from azureml URI; falling back to download", extra={"error": str(exc)})
+            logger.warning(
+                "Failed to load MLTable from azureml URI; falling back to download", extra={"error": str(exc)}
+            )
 
     ml_client = ml_client or get_ml_client()
     settings = get_settings()

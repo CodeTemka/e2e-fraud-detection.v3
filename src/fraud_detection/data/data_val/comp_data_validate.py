@@ -45,9 +45,7 @@ def create_command():
         version=component_version,
         display_name="Validate Data",
         description="Validate the given data for schema, missing values, and basic numeric sanity",
-        inputs={
-            "data": Input(type="string")
-        },
+        inputs={"data": Input(type="string")},
         outputs={
             "validation_report": Output(type=AssetTypes.URI_FILE),
             "is_valid": Output(type=AssetTypes.URI_FILE),

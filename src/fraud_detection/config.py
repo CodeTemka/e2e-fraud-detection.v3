@@ -1,4 +1,5 @@
 """Configuration utilities for the fraud detection project."""
+
 from __future__ import annotations
 
 import hashlib
@@ -16,16 +17,16 @@ class Settings(BaseSettings):
     """Project configuration loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=ROOT_DIR / '.env',
+        env_file=ROOT_DIR / ".env",
         env_file_encoding="utf-8",
-        extra='ignore',
+        extra="ignore",
         loc_by_alias=False,
     )
 
     subscription_id: str | None = Field(default=None, validation_alias=AliasChoices("SUBSCRIPTION_ID"))
-    resource_group: str = Field(default='fraud-detection-demo-rg')
-    workspace_name: str = Field(default='fraud-detection-demo-ws')
-    location: str = Field(default='eastus2')
+    resource_group: str = Field(default="fraud-detection-demo-rg")
+    workspace_name: str = Field(default="fraud-detection-demo-ws")
+    location: str = Field(default="eastus2")
 
     # DEFAULT CONFIGS
     # Compute settings is configured considering 20 quota limit.
@@ -46,11 +47,9 @@ class Settings(BaseSettings):
     registered_train: str = Field(default="fraud-detection-train-data")
     registered_test: str = Field(default="fraud-detection-test-data")
     serving_scalers_name: str = Field(default="fraud-detection-scalers")
-    monitor_reference_data: str | None = Field(
-        default=None, validation_alias=AliasChoices("MONITOR_REFERENCE_DATA")
-    )
+    monitor_reference_data: str | None = Field(default=None, validation_alias=AliasChoices("MONITOR_REFERENCE_DATA"))
     monitor_alert_rate: float = Field(default=0.1, validation_alias=AliasChoices("MONITOR_ALERT_RATE"))
-    
+
     # Metric settings
     default_metric_automl_train: str = Field(default="average_precision_score_weighted")
     default_metric_serving: str = Field(default="average_precision_score_macro")
@@ -62,12 +61,11 @@ class Settings(BaseSettings):
     # Model and deployment settings
     prod_model_name: str = Field(default="fraud-detection-prod-model")
     endpoint_name: str = Field(default="fraud-detection-app")
-    deployment_name: str = Field(default='blue')
+    deployment_name: str = Field(default="blue")
     # Github settings
     github_owner: str | None = Field(default=None, validation_alias=AliasChoices("GITHUB_OWNER"))
     github_repo: str | None = Field(default=None, validation_alias=AliasChoices("GITHUB_REPO"))
     github_token: str | None = Field(default=None, validation_alias=AliasChoices("GITHUB_TOKEN"))
-
 
     def require_az_id(self) -> Settings:
         missing = [
@@ -81,10 +79,9 @@ class Settings(BaseSettings):
             raise ValueError(f"Missing required Azure subscription id {missing}")
         return self
 
-
     def require_github(self) -> Settings:
         missing = [
-            name 
+            name
             for name, value in {
                 "GITHUB_OWNER": self.github_owner,
                 "GITHUB_REPO": self.github_repo,
@@ -95,7 +92,7 @@ class Settings(BaseSettings):
         if missing:
             raise ValueError(f"Missing required Github settings: {', '.join(missing)}")
         return self
-    
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -120,7 +117,7 @@ def get_git_sha(short: bool = True) -> str:
         return subprocess.check_output(cmd, cwd=ROOT_DIR, text=True).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
-    
+
 
 __all__ = [
     "ROOT_DIR",

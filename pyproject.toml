@@ -65,7 +65,7 @@ ignore = ["E501"]
 
 [tool.black]
 line-length = 120
-target-version = "py312"
+target-version = ["py312"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -118,11 +118,15 @@ def evaluate_endpoint(
     resolved_config = config or EvaluationConfig()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    df = dataframe if dataframe is not None else load_dataframe(
-        test_data,
-        ml_client=ml_client,
-        data_label=data_label,
-        sample_rows=resolved_config.sample_rows,
+    df = (
+        dataframe
+        if dataframe is not None
+        else load_dataframe(
+            test_data,
+            ml_client=ml_client,
+            data_label=data_label,
+            sample_rows=resolved_config.sample_rows,
+        )
     )
 
     if resolved_config.label_column not in df.columns:

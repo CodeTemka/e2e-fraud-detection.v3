@@ -19,6 +19,7 @@ from fraud_detection.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+
 def create_environment(ml_client: MLClient) -> Environment:
     env_version = resolve_next_environment_version(ml_client, name="data-for-train-env")
     env = Environment(
@@ -53,10 +54,7 @@ def create_command():
             "seed": Input(type="integer", default=42),
             "is_valid": Input(type=AssetTypes.URI_FILE),
         },
-        outputs={
-            "scalers": Output(type=AssetTypes.URI_FOLDER),
-            "metadata": Output(type=AssetTypes.URI_FILE)
-        },
+        outputs={"scalers": Output(type=AssetTypes.URI_FOLDER), "metadata": Output(type=AssetTypes.URI_FILE)},
         environment=f"{prep_env.name}:{prep_env.version}",
         environment_variables=resolve_azure_env_vars(),
         code=ROOT_DIR / "src",
