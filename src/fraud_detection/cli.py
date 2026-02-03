@@ -11,10 +11,9 @@ from typing import Annotated, cast
 
 import typer
 
+from fraud_detection.azure.client import get_ml_client
 from fraud_detection.config import ROOT_DIR, get_settings
 from fraud_detection.utils.logging import get_logger
-from fraud_detection.azure.client import get_ml_client
-
 
 app = typer.Typer(help="Utilities to orchestrate Azure ML jobs")
 logger = get_logger(__name__)
@@ -228,6 +227,8 @@ def validate_data(
     """Validate a registered fraud dataset."""
     from fraud_detection.data.data_val.data_validate import (
         load_from_mltable,
+    )
+    from fraud_detection.data.data_val.data_validate import (
         validate_data as validate_dataframe,
     )
 
@@ -319,6 +320,7 @@ def prep_data_for_train(
         transform_with_scalers,
         write_validation_failure_metadata,
     )
+    from fraud_detection.data.data_val.data_validate import load_from_mltable
 
     is_valid_result, invalid_reason = read_is_valid_flag(is_valid)
     if not is_valid_result:
@@ -443,7 +445,7 @@ def run_data_pipeline(
 
     typer.echo(f"Submitted pipeline job: {getattr(job, 'name', None)}")
     if wait:
-        ml_client.jobs.stream(getattr(job, 'name'))
+        ml_client.jobs.stream(job.name)
 
 
 
@@ -827,7 +829,7 @@ def run_deployment_pipeline(
 
     typer.echo(f"Submitted deployment pipeline job: {getattr(job, 'name', None)}")
     if wait:
-        ml_client.jobs.stream(getattr(job, "name"))
+        ml_client.jobs.stream(job.name)
 
 
 @app.command("check-providers")
@@ -1007,6 +1009,8 @@ def serve_prod_model(
     """Deploy the production model to an online endpoint (component entrypoint)."""
     from fraud_detection.serving.serve_prod_model import (
         resolve_model as resolve_serving_model,
+    )
+    from fraud_detection.serving.serve_prod_model import (
         serve_prod_model as deploy_prod_model,
     )
     settings = get_settings()
@@ -1241,7 +1245,7 @@ def evaluate_endpoint_cmd(
     job = submit_monitor_job(ml_client, job_config)
     typer.echo(f"Submitted evaluation job: {getattr(job, 'name', None)}")
     if wait:
-        ml_client.jobs.stream(getattr(job, "name"))
+        ml_client.jobs.stream(job.name)
 
 
 @app.command("check-drift")
@@ -1357,7 +1361,7 @@ def check_drift_cmd(
     job = submit_monitor_job(ml_client, job_config)
     typer.echo(f"Submitted drift job: {getattr(job, 'name', None)}")
     if wait:
-        ml_client.jobs.stream(getattr(job, "name"))
+        ml_client.jobs.stream(job.name)
 
 
 @app.command("monitor")
@@ -1549,7 +1553,7 @@ def monitor_cmd(
     job = submit_monitor_job(ml_client, job_config)
     typer.echo(f"Submitted monitoring job: {getattr(job, 'name', None)}")
     if wait:
-        ml_client.jobs.stream(getattr(job, "name"))
+        ml_client.jobs.stream(job.name)
 
 
 def run() -> None:

@@ -2,9 +2,9 @@ import pandas as pd
 
 from fraud_detection.monitoring.endpoint_client import (
     EndpointConfig,
+    _normalize_auth_mode,
     extract_predictions,
     invoke_endpoint_batches,
-    _normalize_auth_mode,
 )
 
 

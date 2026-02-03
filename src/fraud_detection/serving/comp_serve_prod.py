@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from azure.ai.ml import MLClient, Input, Output, command
+from azure.ai.ml import Input, MLClient, Output, command
 from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Environment
 
-from fraud_detection.azure.client import get_ml_client
-from fraud_detection.azure.client import resolve_azure_env_vars
+from fraud_detection.azure.client import get_ml_client, resolve_azure_env_vars
 from fraud_detection.config import ROOT_DIR, Settings, get_settings
 from fraud_detection.utils.logging import get_logger
 from fraud_detection.utils.versioning import (

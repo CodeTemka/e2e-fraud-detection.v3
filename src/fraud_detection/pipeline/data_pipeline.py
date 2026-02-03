@@ -3,10 +3,9 @@
 from azure.ai.ml import MLClient
 from azure.ai.ml.dsl import pipeline
 
-from fraud_detection.config import ROOT_DIR, get_settings
-from fraud_detection.utils.logging import get_logger
 from fraud_detection.azure.client import get_ml_client, resolve_azure_env_vars
-
+from fraud_detection.config import get_settings
+from fraud_detection.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -37,7 +36,7 @@ def _apply_env_vars_to_jobs(pipeline_job: object, env_vars: dict[str, str]) -> N
     for job in jobs.values():
         existing = getattr(job, "environment_variables", None) or {}
         merged = {**existing, **env_vars}
-        setattr(job, "environment_variables", merged)
+        job.environment_variables = merged
 
 
 def create_data_pipeline_job(

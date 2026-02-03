@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 try:
     from datetime import UTC as _UTC  # type: ignore
 except ImportError:  # pragma: no cover - Python < 3.11
-    _UTC = timezone.utc
+    _UTC = _UTC
 
 UTC = _UTC
 

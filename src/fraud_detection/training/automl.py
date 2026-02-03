@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from azure.ai.ml import Input, MLClient, automl
@@ -13,6 +11,7 @@ from azure.ai.ml.automl import ClassificationPrimaryMetrics
 from azure.ai.ml.constants import AssetTypes
 from azure.core.exceptions import ResourceNotFoundError
 
+from fraud_detection.azure.client import get_ml_client
 from fraud_detection.config import (
     build_idempotency_key,
     build_job_name,
@@ -20,7 +19,6 @@ from fraud_detection.config import (
     get_settings,
 )
 from fraud_detection.utils.logging import get_logger
-from fraud_detection.azure.client import get_ml_client
 
 logger = get_logger(__name__)
 
@@ -165,10 +163,10 @@ def submit_job(ml_client: MLClient, job: Any) -> str:
         else:
             status = getattr(existing, "status", None)
             logger.info("Existing AutoML job reused", extra={"job_name": existing.name, "status": status})
-            return getattr(existing, "name")
+            return existing.name
     returned_job = ml_client.jobs.create_or_update(job)
     logger.info("Submitting AutoML job", extra={"job_name": returned_job.name})
-    return getattr(returned_job, "name")
+    return returned_job.name
 
 
 

@@ -141,8 +141,8 @@ def _post_json_with_retry(
             if response.status_code < 300:
                 try:
                     return response.json()
-                except json.JSONDecodeError:
-                    raise RuntimeError("Endpoint returned non-JSON response.")
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError("Endpoint returned non-JSON response.") from exc
 
             if response.status_code in _RETRY_STATUS and attempt < max_retries:
                 delay = min(backoff_base * (2**attempt), backoff_max)

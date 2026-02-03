@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 CANONICAL_METRIC_KEYS: list[str] = [
     "metrics.weighted_accuracy",
     "metrics.AUC_micro",

@@ -2,11 +2,10 @@ import contextlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import matplotlib
 import numpy as np
 import pandas as pd
 import pytest
-
-import matplotlib
 
 matplotlib.use("Agg")
 

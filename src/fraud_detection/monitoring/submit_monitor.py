@@ -12,7 +12,7 @@ from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Environment
 from azure.core.exceptions import ResourceNotFoundError
 
-from fraud_detection.azure.client import get_ml_client, resolve_azure_env_vars
+from fraud_detection.azure.client import resolve_azure_env_vars
 from fraud_detection.config import ROOT_DIR, Settings, build_idempotency_key, build_job_name, get_settings
 from fraud_detection.utils.compute import ensure_pipeline_compute
 from fraud_detection.utils.logging import get_logger

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import mltable
 import pandas as pd

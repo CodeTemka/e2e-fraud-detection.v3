@@ -11,6 +11,8 @@ from nacl import encoding, public
 
 from fraud_detection.config import Settings, get_settings
 
+DEFAULT_SP_PATH = Path(__file__).resolve().parent / "sp_credentials.json"
+
 
 def _headers(token: str) -> dict[str, str]:
     return {
@@ -92,7 +94,7 @@ def set_github_secret(
 
 
 def update_azure_credentials_secret(
-    sp_path: Path = Path(__file__).resolve().parent / "sp_credentials.json",
+    sp_path: Path = DEFAULT_SP_PATH,
 ) -> None:
     sp = json.loads(sp_path.read_text(encoding="utf-8"))
 

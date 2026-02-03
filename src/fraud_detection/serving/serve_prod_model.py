@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from math import floor
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from azure.ai.ml import MLClient
 from azure.ai.ml.entities import CodeConfiguration, Environment, ManagedOnlineDeployment, ManagedOnlineEndpoint, Model
@@ -23,7 +24,7 @@ logger = get_logger(__name__)
 try:
     from datetime import UTC as _UTC  # type: ignore
 except ImportError:  # pragma: no cover - Python < 3.11
-    _UTC = timezone.utc
+    _UTC = _UTC
 
 UTC = _UTC
 

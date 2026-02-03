@@ -1,5 +1,7 @@
-"""Utitlity to prepare Azure resources for the fraud detection system"""
-"""!!! Run this script on PowerShell, Command Prompt, or Bash. Don't run it on Git Bash"""
+"""Utility to prepare Azure resources for the fraud detection system.
+
+Run this script on PowerShell, Command Prompt, or Bash. Do not run it on Git Bash.
+"""
 
 import json
 import shutil
@@ -10,7 +12,6 @@ from azure.ai.ml.entities import Workspace
 from azure.identity import ClientSecretCredential
 
 from fraud_detection.config import get_settings
-from fraud_detection.utils.logging import get_logger
 
 
 def main():

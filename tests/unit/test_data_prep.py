@@ -1,8 +1,6 @@
 import json
 from types import SimpleNamespace
 
-import pandas as pd
-
 from fraud_detection.data.data_for_train.data_for_train import (
     fit_scalers,
     read_is_valid_flag,

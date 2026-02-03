@@ -303,7 +303,7 @@ def _parse_request_id(raw_data: Any) -> str:
         return str(uuid.uuid4())
 
     parsed = raw_data
-    if isinstance(raw_data, (str, bytes)):
+    if isinstance(raw_data, str | bytes):
         try:
             parsed = json.loads(raw_data)
         except json.JSONDecodeError:
@@ -341,7 +341,7 @@ def _coerce_records(raw_data: Any) -> tuple[pd.DataFrame, int | None]:
         return pd.DataFrame(), None
 
     parsed = raw_data
-    if isinstance(raw_data, (str, bytes)):
+    if isinstance(raw_data, str | bytes):
         parsed = json.loads(raw_data)
 
     if isinstance(parsed, dict):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from azure.ai.ml import MLClient, Input, Output, command
+from azure.ai.ml import Input, MLClient, Output, command
 from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Environment
 

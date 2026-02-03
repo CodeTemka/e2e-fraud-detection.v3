@@ -16,7 +16,6 @@ from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Environment
 from azure.ai.ml.sweep import (
     Choice,
-    LogUniform,
     MedianStoppingPolicy,
     RandomSamplingAlgorithm,
     SamplingAlgorithm,
@@ -318,13 +317,13 @@ def submit_lgbm_sweep_job(ml_client: MLClient, config: LGBMSweepConfig) -> str:
                 config.job_name = None
             else:
                 logger.info("Existing LightGBM sweep job reused", extra={"job_name": existing.name, "status": status})
-                return getattr(existing, "name")
+                return existing.name
 
     environment = resolve_lgbm_environment(ml_client, config)
     sweep_job = create_lgbm_sweep_job(config, environment=environment)
     returned_job = ml_client.jobs.create_or_update(sweep_job)
     logger.info("Submitting LightGBM sweep job", extra={"job_name": returned_job.name})
-    return getattr(returned_job, "name")
+    return returned_job.name
 
 
 def main() -> None:

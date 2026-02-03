@@ -9,8 +9,8 @@ from azure.ai.ml import MLClient
 from azure.ai.ml.entities import AmlCompute
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 
-from fraud_detection.utils.logging import get_logger
 from fraud_detection.config import get_settings
+from fraud_detection.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -52,16 +52,16 @@ def _try_delete_existing_computes(
     excluded = {c.lower() for c in (exclude or [])}
 
     for compute in ml_client.compute.list():
-        if getattr(compute, "name").lower() in excluded:
+        if compute.name.lower() in excluded:
             continue
 
         try:
-            if delete_compute(ml_client, name=getattr(compute, "name"), ignore_missing=True):
-                deleted.append(getattr(compute, "name"))
+            if delete_compute(ml_client, name=compute.name, ignore_missing=True):
+                deleted.append(compute.name)
         except Exception as exc:  # pragma: no cover - best effort cleanup
             logger.warning(
                 "Falied to delete compute during quota cleanup",
-                extra={"compute_name": getattr(compute, "name"), "error": str(exc)}
+                extra={"compute_name": compute.name, "error": str(exc)}
             )
 
         

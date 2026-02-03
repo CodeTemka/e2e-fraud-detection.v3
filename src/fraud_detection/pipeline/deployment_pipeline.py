@@ -37,7 +37,7 @@ def _apply_env_vars_to_jobs(pipeline_job: object, env_vars: dict[str, str]) -> N
     for job in jobs.values():
         existing = getattr(job, "environment_variables", None) or {}
         merged = {**existing, **env_vars}
-        setattr(job, "environment_variables", merged)
+        job.environment_variables = merged
 
 
 def _normalize_compare_metric(compare_metric: str | None) -> str:

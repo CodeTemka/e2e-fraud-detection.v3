@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import mlflow
-from mlflow.entities import ViewType
-from mlflow.tracking import MlflowClient
-
 from azure.ai.ml import MLClient
 from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.entities import Model
 from azure.core.exceptions import HttpResponseError
+from mlflow.entities import ViewType
+from mlflow.tracking import MlflowClient
 
 from fraud_detection.azure.client import get_ml_client
 from fraud_detection.config import (

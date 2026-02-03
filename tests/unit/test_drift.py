@@ -21,7 +21,7 @@ def test_compute_drift_metrics_rejects_unknown_method():
     except ValueError as exc:
         assert "Unsupported drift method" in str(exc)
     else:
-        assert False, "Expected ValueError"
+        raise AssertionError("Expected ValueError")
 
 
 def test_run_drift_check_writes_outputs(tmp_path, mock_mlflow):

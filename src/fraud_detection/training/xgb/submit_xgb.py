@@ -348,13 +348,13 @@ def submit_xgb_sweep_job(ml_client: MLClient, config: XGBSweepConfig) -> str:
                 config.job_name = None
             else:
                 logger.info("Existing XGBoost sweep job reused", extra={"job_name": existing.name, "status": status})
-                return str(getattr(existing, "name"))
+                return str(existing.name)
 
     environment = resolve_xgb_environment(ml_client, config)
     sweep_job = create_xgb_sweep_job(config, environment=environment)
     returned_job = ml_client.jobs.create_or_update(sweep_job)
     logger.info("Submitting XGBoost sweep job", extra={"job_name": returned_job.name})
-    return str(getattr(returned_job, "name"))
+    return str(returned_job.name)
 
 
 def main() -> None:
