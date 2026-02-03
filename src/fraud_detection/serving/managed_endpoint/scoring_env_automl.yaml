@@ -19,7 +19,6 @@ dependencies:
   - azure-graphrbac==0.61.2
   - azure-identity==1.17.0
   - azure-mgmt-authorization==4.0.0
-  - azure-mgmt-containerregistry==14.0.0
   - azure-mgmt-core==1.6.0
   - azure-mgmt-keyvault==11.0.0
   - azure-mgmt-network==30.0.0

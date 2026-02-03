@@ -30,7 +30,6 @@ REQUIRED_COLUMNS = (
 
 DEFAULT_PROVIDER_NAMES = (
     "Microsoft.MachineLearningServices",
-    "Microsoft.ContainerRegistry",
     "Microsoft.Storage",
     "Microsoft.KeyVault",
     "Microsoft.ManagedIdentity",
@@ -1004,65 +1003,12 @@ def serve_prod_model(
         str | None,
         typer.Option("--scoring-info", help="Path to write deployment metadata JSON."),
     ] = None,
-    target: Annotated[
-        str,
-        typer.Option("--target", help="Deployment target (aml-endpoint or container-apps)."),
-    ] = "aml-endpoint",
-    container_app_name: Annotated[
-        str | None,
-        typer.Option("--container-app-name", help="Container Apps name override."),
-    ] = None,
-    container_app_environment: Annotated[
-        str | None,
-        typer.Option("--container-app-environment", help="Container Apps environment name override."),
-    ] = None,
-    container_registry_name: Annotated[
-        str | None,
-        typer.Option("--container-registry", help="ACR name for building the image."),
-    ] = None,
-    container_image: Annotated[
-        str | None,
-        typer.Option("--container-image", help="Full image reference to deploy (skips build)."),
-    ] = None,
-    container_image_name: Annotated[
-        str | None,
-        typer.Option("--container-image-name", help="Image repository name when building."),
-    ] = None,
-    container_image_tag: Annotated[
-        str | None,
-        typer.Option("--container-image-tag", help="Image tag when building."),
-    ] = None,
-    container_dockerfile: Annotated[
-        str | None,
-        typer.Option("--container-dockerfile", help="Dockerfile path for image build."),
-    ] = None,
-    container_source: Annotated[
-        str | None,
-        typer.Option("--container-source", help="Build context path for image build."),
-    ] = None,
-    use_managed_identity: Annotated[
-        bool,
-        typer.Option(
-            "--use-managed-identity/--use-service-principal",
-            help="Use managed identity for Container Apps (default).",
-        ),
-    ] = True,
-    scaler_asset_name: Annotated[
-        str | None,
-        typer.Option("--scaler-asset-name", help="Scaler data asset name (Container Apps)."),
-    ] = None,
-    scaler_asset_version: Annotated[
-        str | None,
-        typer.Option("--scaler-asset-version", help="Scaler data asset version (optional)."),
-    ] = None,
 ) -> None:
     """Deploy the production model to an online endpoint (component entrypoint)."""
     from fraud_detection.serving.managed_endpoint.serve_prod_model import (
         resolve_model as resolve_serving_model,
         serve_prod_model as deploy_prod_model,
     )
-    from fraud_detection.serving.container_registry.container_apps import deploy_container_app
-
     settings = get_settings()
     ml_client = get_ml_client()
 
@@ -1111,93 +1057,35 @@ def serve_prod_model(
             extra={"endpoint_name": endpoint_name, "deployment_name": deployment_name},
         )
 
-    resolved_target = (target or "").strip().lower()
-    if resolved_target in {"aml", "aml-endpoint", "online-endpoint"}:
-        if not scaler_dir:
-            raise typer.BadParameter("--scaler-dir is required for AML endpoint deployment.")
+    if not scaler_dir:
+        raise typer.BadParameter("--scaler-dir is required for AML endpoint deployment.")
 
-        result = deploy_prod_model(
-            ml_client,
-            prod_model_name=prod_model_name,
-            model_version=model_version,
-            endpoint_name=endpoint_name,
-            deployment_name=deployment_name,
-            scaler_dir=scaler_dir,
-            max_alerts=max_alerts,
-            traffic_percentage=traffic_percentage,
-            dry_run=_parse_bool(dry_run),
-            skip_env=_parse_bool(skip_env),
-            settings=settings,
-        )
-
-        if success_flag:
-            _write_text(Path(success_flag), "true")
-        if endpoint_name_out:
-            _write_text(Path(endpoint_name_out), result.endpoint_name)
-        if deployment_name_out:
-            _write_text(Path(deployment_name_out), result.deployment_name)
-        if deployed_model_name:
-            _write_text(Path(deployed_model_name), result.model_name)
-        if deployed_model_version:
-            _write_text(Path(deployed_model_version), result.model_version)
-        if scoring_info:
-            _write_json(Path(scoring_info), result.to_dict())
-        return
-
-    if resolved_target not in {"container-apps", "containerapp", "aca"}:
-        raise typer.BadParameter(
-            "Unsupported target. Choose 'aml-endpoint' or 'container-apps'."
-        )
-
-    resolved_app_name = (container_app_name or settings.container_app_name).strip()
-    resolved_env_name = (container_app_environment or settings.container_app_environment).strip()
-    if not resolved_app_name:
-        raise typer.BadParameter("container-app-name is required for Container Apps deployment.")
-    if not resolved_env_name:
-        raise typer.BadParameter("container-app-environment is required for Container Apps deployment.")
-
-    resolved_registry = (container_registry_name or settings.container_registry_name or "").strip() or None
-    resolved_image_name = (container_image_name or settings.container_app_image_name or "").strip() or None
-    resolved_dockerfile = container_dockerfile or str(ROOT_DIR / "deploy" / "container_apps" / "Dockerfile")
-    resolved_source = container_source or str(ROOT_DIR)
-
-    resolved_scaler_asset = (scaler_asset_name or settings.serving_scalers_name).strip()
-    if not resolved_scaler_asset:
-        raise typer.BadParameter("scaler-asset-name is required for Container Apps deployment.")
-
-    container_result = deploy_container_app(
+    result = deploy_prod_model(
         ml_client,
-        app_name=resolved_app_name,
-        environment_name=resolved_env_name,
-        model_name=prod_model_name or settings.prod_model_name,
+        prod_model_name=prod_model_name,
         model_version=model_version,
-        scaler_asset_name=resolved_scaler_asset,
-        scaler_asset_version=scaler_asset_version,
-        registry_name=resolved_registry,
-        image_name=resolved_image_name,
-        image_tag=container_image_tag,
-        image=container_image,
-        dockerfile=resolved_dockerfile,
-        source_dir=resolved_source,
-        target_port=settings.container_app_port,
+        endpoint_name=endpoint_name,
+        deployment_name=deployment_name,
+        scaler_dir=scaler_dir,
         max_alerts=max_alerts,
+        traffic_percentage=traffic_percentage,
         dry_run=_parse_bool(dry_run),
-        include_sp_credentials=not use_managed_identity,
+        skip_env=_parse_bool(skip_env),
         settings=settings,
     )
 
     if success_flag:
         _write_text(Path(success_flag), "true")
     if endpoint_name_out:
-        _write_text(Path(endpoint_name_out), container_result.app_name)
+        _write_text(Path(endpoint_name_out), result.endpoint_name)
     if deployment_name_out:
-        _write_text(Path(deployment_name_out), container_result.revision or container_result.app_name)
+        _write_text(Path(deployment_name_out), result.deployment_name)
     if deployed_model_name:
-        _write_text(Path(deployed_model_name), container_result.model_name)
+        _write_text(Path(deployed_model_name), result.model_name)
     if deployed_model_version:
-        _write_text(Path(deployed_model_version), container_result.model_version)
+        _write_text(Path(deployed_model_version), result.model_version)
     if scoring_info:
-        _write_json(Path(scoring_info), container_result.to_dict())
+        _write_json(Path(scoring_info), result.to_dict())
 
 
 @app.command("evaluate-endpoint")

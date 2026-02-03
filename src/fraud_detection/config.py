@@ -64,12 +64,6 @@ class Settings(BaseSettings):
     prod_model_name: str = Field(default="fraud-detection-prod-model")
     endpoint_name: str = Field(default="fraud-detection-app")
     deployment_name: str = Field(default='blue')
-    container_app_name: str = Field(default="fraud-detection-app-ca")
-    container_app_environment: str = Field(default="fraud-detection-ca-env")
-    container_app_image_name: str = Field(default="fraud-detection-app")
-    container_registry_name: str | None = Field(default=None)
-    container_app_port: int = Field(default=8000)
-
     # Github settings
     github_owner: str | None = Field(default=None, validation_alias=AliasChoices("GITHUB_OWNER"))
     github_repo: str | None = Field(default=None, validation_alias=AliasChoices("GITHUB_REPO"))
