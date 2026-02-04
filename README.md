@@ -39,12 +39,12 @@ Key components:
 +- .github/workflows/          # CI/CD workflows
 +- scripts/                    # helper scripts (Azure setup, secrets, data registration)
 +- src/fraud_detection/        # Python package
-¦  +- data/                    # data validation + preparation
-¦  +- training/                # AutoML, XGB, LGBM jobs
-¦  +- registry/                # model promotion + registration
-¦  +- serving/                 # deployment + scoring utils
-¦  +- monitoring/              # evaluation + drift monitoring
-¦  +- pipeline/                # Azure ML pipelines
+â”‚  +- data/                    # data validation + preparation
+â”‚  +- training/                # AutoML, XGB, LGBM jobs
+â”‚  +- registry/                # model promotion + registration
+â”‚  +- serving/                 # deployment + scoring utils
+â”‚  +- monitoring/              # evaluation + drift monitoring
+â”‚  +- pipeline/                # Azure ML pipelines
 +- tests/                      # pytest suite
 +- pyproject.toml
 ```
