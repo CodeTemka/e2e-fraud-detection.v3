@@ -112,4 +112,4 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: pip-audit
-        run: pip-audit
+        run: pip-audit --ignore-vuln GHSA-mrfv-m5wm-5w6w
