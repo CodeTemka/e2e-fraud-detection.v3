@@ -188,13 +188,21 @@ def _extract_from_nested(payload: dict[str, Any], keys: tuple[str, ...]) -> Any 
     return None
 
 
+def _get_first_non_none(payload: dict[str, Any], keys: tuple[str, ...]) -> Any | None:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return value
+    return None
+
+
 def extract_predictions(payload: dict[str, Any] | list[Any]) -> EndpointInvocationResult:
     if isinstance(payload, list):
         if payload and isinstance(payload[0], dict):
-            preds = [row.get("predicted_label") or row.get("prediction") or row.get("label") for row in payload]
+            preds = [_get_first_non_none(row, ("predicted_label", "prediction", "label")) for row in payload]
             probs = None
             if all(isinstance(row, dict) for row in payload):
-                prob_values = [row.get("probability") or row.get("score") for row in payload]
+                prob_values = [_get_first_non_none(row, ("probability", "score")) for row in payload]
                 if all(value is not None for value in prob_values):
                     probs = [float(value) for value in prob_values]
             return EndpointInvocationResult(

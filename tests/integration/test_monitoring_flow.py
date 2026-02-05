@@ -1,7 +1,11 @@
+import importlib
+
 import pandas as pd
 
 from fraud_detection.monitoring.endpoint_client import EndpointConfig, EndpointInvocationResult
-from fraud_detection.monitoring.evaluate_endpoint import evaluate_endpoint
+
+
+evaluate_endpoint_module = importlib.import_module("fraud_detection.monitoring.evaluate_endpoint")
 
 
 def test_evaluate_endpoint_writes_artifacts(tmp_path, mock_mlflow, monkeypatch):
@@ -22,10 +26,10 @@ def test_evaluate_endpoint_writes_artifacts(tmp_path, mock_mlflow, monkeypatch):
             num_alerts=None,
         )
 
-    monkeypatch.setattr("fraud_detection.monitoring.evaluate_endpoint.invoke_endpoint_batches", fake_invoke)
+    monkeypatch.setattr(evaluate_endpoint_module, "invoke_endpoint_batches", fake_invoke)
 
     config = EndpointConfig(endpoint_name="endpoint", scoring_uri="http://example", endpoint_key="fake")
-    result = evaluate_endpoint(
+    result = evaluate_endpoint_module.evaluate_endpoint(
         test_data="ignored",
         endpoint_config=config,
         output_dir=tmp_path,
