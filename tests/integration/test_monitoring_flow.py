@@ -4,7 +4,6 @@ import pandas as pd
 
 from fraud_detection.monitoring.endpoint_client import EndpointConfig, EndpointInvocationResult
 
-
 evaluate_endpoint_module = importlib.import_module("fraud_detection.monitoring.evaluate_endpoint")
 
 
