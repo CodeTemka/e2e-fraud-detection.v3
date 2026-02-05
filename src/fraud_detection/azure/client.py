@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from azure.ai.ml import MLClient
@@ -39,13 +40,25 @@ def _load_sp_credentials(path: Path) -> dict[str, str] | None:
     }
 
 
+def _load_env_credentials() -> dict[str, str]:
+    values = {
+        "AZURE_TENANT_ID": os.getenv("AZURE_TENANT_ID"),
+        "AZURE_CLIENT_ID": os.getenv("AZURE_CLIENT_ID"),
+        "AZURE_CLIENT_SECRET": os.getenv("AZURE_CLIENT_SECRET"),
+    }
+    return {key: value for key, value in values.items() if value}
+
+
 def resolve_azure_env_vars(*, settings: Settings | None = None) -> dict[str, str]:
     resolved = settings or get_settings()
     env_vars: dict[str, str] = {}
     if resolved.subscription_id:
         env_vars["SUBSCRIPTION_ID"] = str(resolved.subscription_id)
+    env_vars.update(_load_env_credentials())
     sp_path = ROOT_DIR / "scripts" / "sp_credentials.json"
-    env_vars.update(_load_sp_credentials(sp_path) or {})
+    sp_credentials = _load_sp_credentials(sp_path) or {}
+    for key, value in sp_credentials.items():
+        env_vars.setdefault(key, value)
     return env_vars
 
 

@@ -64,6 +64,39 @@ jobs:
           echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> "$GITHUB_ENV"
           az account set --subscription "$SUBSCRIPTION_ID"
           az account show --output table
+      - name: Export Azure service principal env vars
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          raw = os.getenv("AZURE_CREDENTIALS", "").strip()
+          if not raw:
+              sys.exit("AZURE_CREDENTIALS is missing or empty.")
+
+          try:
+              data = json.loads(raw)
+          except Exception:
+              sys.exit("AZURE_CREDENTIALS must be valid JSON.")
+
+          mapping = {
+              "AZURE_CLIENT_ID": data.get("clientId"),
+              "AZURE_TENANT_ID": data.get("tenantId"),
+              "AZURE_CLIENT_SECRET": data.get("clientSecret"),
+          }
+          missing = [key for key, value in mapping.items() if not value]
+          if missing:
+              sys.exit(f"AZURE_CREDENTIALS is missing required key(s): {', '.join(missing)}")
+
+          env_file = os.environ["GITHUB_ENV"]
+          with open(env_file, "a", encoding="utf-8") as handle:
+              for key, value in mapping.items():
+                  handle.write(f"{key}={value}\n")
+          PY
 
       - name: Deploy (Azure ML pipeline)
         timeout-minutes: 45
