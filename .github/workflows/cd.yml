@@ -27,8 +27,8 @@ jobs:
       WORKSPACE_NAME: ${{ vars.AZURE_WORKSPACE_NAME || 'fraud-detection-demo-ws' }}
       TEST_DATA_ASSET_NAME: ${{ vars.TEST_DATA_ASSET_NAME }}
       REF_DATA_ASSET_NAME: ${{ vars.REF_DATA_ASSET_NAME }}
-      ENDPOINT_NAME: ${{ vars.ENDPOINT_NAME }}
-      DEPLOYMENT_NAME: ${{ vars.DEPLOYMENT_NAME }}
+      ENDPOINT_NAME: ${{ vars.ENDPOINT_NAME || 'fraud-detection-app' }}
+      DEPLOYMENT_NAME: ${{ vars.DEPLOYMENT_NAME || 'blue' }}
       LABEL_COLUMN: ${{ vars.LABEL_COLUMN }}
     steps:
       - name: Checkout

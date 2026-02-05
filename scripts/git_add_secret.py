@@ -183,6 +183,8 @@ def update_cd_workspace_variables(*, settings: Settings | None = None) -> None:
     values = {
         "AZURE_RESOURCE_GROUP": str(cfg.resource_group or "").strip(),
         "AZURE_WORKSPACE_NAME": str(cfg.workspace_name or "").strip(),
+        "ENDPOINT_NAME": str(cfg.endpoint_name or "").strip(),
+        "DEPLOYMENT_NAME": str(cfg.deployment_name or "").strip(),
     }
 
     missing = [name for name, value in values.items() if not value]

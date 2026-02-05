@@ -103,6 +103,8 @@ CI/CD auth:
 - Additional CD variables:
   - `AZURE_RESOURCE_GROUP`
   - `AZURE_WORKSPACE_NAME`
+  - `ENDPOINT_NAME`
+  - `DEPLOYMENT_NAME`
 
 ## Data Registration
 

@@ -52,6 +52,15 @@ def _normalize_experiments(experiments: str | None) -> str:
     return experiments.strip()
 
 
+def _resolve_required_name(value: str | None, default_value: str | None, *, field_name: str) -> str:
+    resolved = (value or "").strip()
+    if not resolved:
+        resolved = (default_value or "").strip()
+    if not resolved:
+        raise ValueError(f"{field_name} is required and cannot be empty.")
+    return resolved
+
+
 def _parse_version(value: str | None) -> tuple[int, ...] | None:
     if value is None:
         return None
@@ -126,9 +135,21 @@ def create_deployment_pipeline_job(
     if not resolved_experiments:
         resolved_experiments = f"{settings.custom_train_exp},{settings.automl_train_exp}"
 
-    resolved_prod_model_name = (prod_model_name or settings.prod_model_name).strip()
-    resolved_endpoint_name = (endpoint_name or settings.endpoint_name).strip()
-    resolved_deployment_name = (deployment_name or settings.deployment_name).strip()
+    resolved_prod_model_name = _resolve_required_name(
+        prod_model_name,
+        settings.prod_model_name,
+        field_name="prod_model_name",
+    )
+    resolved_endpoint_name = _resolve_required_name(
+        endpoint_name,
+        settings.endpoint_name,
+        field_name="endpoint_name",
+    )
+    resolved_deployment_name = _resolve_required_name(
+        deployment_name,
+        settings.deployment_name,
+        field_name="deployment_name",
+    )
     resolved_scaler_uri = _resolve_scaler_asset_uri(
         ml_client,
         scaler_asset_name=scaler_asset_name,
