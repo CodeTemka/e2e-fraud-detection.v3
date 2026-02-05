@@ -23,8 +23,8 @@ jobs:
       PYTHONUTF8: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       MPLBACKEND: "Agg"
-      RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
-      WORKSPACE_NAME: ${{ secrets.AZURE_WORKSPACE_NAME }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'fraud-detection-demo-rg' }}
+      WORKSPACE_NAME: ${{ vars.AZURE_WORKSPACE_NAME || 'fraud-detection-demo-ws' }}
       TEST_DATA_ASSET_NAME: ${{ vars.TEST_DATA_ASSET_NAME }}
       REF_DATA_ASSET_NAME: ${{ vars.REF_DATA_ASSET_NAME }}
       ENDPOINT_NAME: ${{ vars.ENDPOINT_NAME }}

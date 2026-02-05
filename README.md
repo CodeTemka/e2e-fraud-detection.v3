@@ -100,7 +100,7 @@ CI/CD auth:
     "clientId": "******"
   }
   ```
-- Additional CD secrets:
+- Additional CD variables:
   - `AZURE_RESOURCE_GROUP`
   - `AZURE_WORKSPACE_NAME`
 

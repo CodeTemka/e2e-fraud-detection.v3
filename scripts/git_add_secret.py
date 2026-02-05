@@ -55,7 +55,6 @@ def set_github_secret(
     settings: Settings | None = None,
 ) -> None:
     cfg = settings or get_settings()
-
     token = (cfg.github_token or "").strip()
     owner = (cfg.github_owner or "").strip()
     repo = (cfg.github_repo or "").strip()
@@ -86,6 +85,47 @@ def set_github_secret(
         raise RuntimeError(f"Failed to upload secret '{name}': {response.status_code} - {response.text}")
 
     print(f"OK: secret '{name}' uploaded.")
+
+
+def set_github_variable(
+    name: str,
+    value: str | dict[str, Any],
+    *,
+    settings: Settings | None = None,
+) -> None:
+    cfg = settings or get_settings()
+
+    token = (cfg.github_token or "").strip()
+    owner = (cfg.github_owner or "").strip()
+    repo = (cfg.github_repo or "").strip()
+
+    if not owner or not repo:
+        env_repo = os.getenv("GITHUB_REPOSITORY", "").strip()
+        if env_repo and "/" in env_repo:
+            owner, repo = env_repo.split("/", 1)
+
+    if not owner or not repo:
+        raise ValueError(
+            "Missing GitHub repository. Set GITHUB_OWNER and GITHUB_REPO " "or GITHUB_REPOSITORY=owner/repo."
+        )
+    if not token:
+        raise ValueError("Missing GitHub token. Set GITHUB_TOKEN in .env or the environment.")
+
+    if isinstance(value, dict):
+        value = json.dumps(value, separators=(",", ":"))
+
+    payload = {"name": name, "value": value}
+    update_url = f"https://api.github.com/repos/{owner}/{repo}/actions/variables/{name}"
+    create_url = f"https://api.github.com/repos/{owner}/{repo}/actions/variables"
+
+    response = requests.patch(update_url, headers=_headers(token), json=payload, timeout=30)
+    if response.status_code == 404:
+        response = requests.post(create_url, headers=_headers(token), json=payload, timeout=30)
+
+    if response.status_code not in (201, 204):
+        raise RuntimeError(f"Failed to upload variable '{name}': {response.status_code} - {response.text}")
+
+    print(f"OK: variable '{name}' uploaded.")
 
 
 def _build_azure_credentials_json(
@@ -138,5 +178,21 @@ def update_azure_credentials_secret(
     set_github_secret("AZURE_CREDENTIALS", azure_credentials)
 
 
+def update_cd_workspace_variables(*, settings: Settings | None = None) -> None:
+    cfg = settings or get_settings()
+    values = {
+        "AZURE_RESOURCE_GROUP": str(cfg.resource_group or "").strip(),
+        "AZURE_WORKSPACE_NAME": str(cfg.workspace_name or "").strip(),
+    }
+
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        raise ValueError(f"Missing values for CD variables: {', '.join(missing)}")
+
+    for name, value in values.items():
+        set_github_variable(name, value)
+
+
 if __name__ == "__main__":
     update_azure_credentials_secret()
+    update_cd_workspace_variables()
