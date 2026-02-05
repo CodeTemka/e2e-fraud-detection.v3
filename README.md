@@ -91,11 +91,18 @@ Local auth:
 - `az login` (device code)
 
 CI/CD auth:
-- Service principal via GitHub Secrets:
-  - `AZURE_CLIENT_ID`
-  - `AZURE_TENANT_ID`
-  - `AZURE_CLIENT_SECRET`
-  - `AZURE_SUBSCRIPTION_ID`
+- Service principal secret via GitHub Secret `AZURE_CREDENTIALS` (JSON):
+  ```json
+  {
+    "clientSecret": "******",
+    "subscriptionId": "******",
+    "tenantId": "******",
+    "clientId": "******"
+  }
+  ```
+- Additional CD secrets:
+  - `AZURE_RESOURCE_GROUP`
+  - `AZURE_WORKSPACE_NAME`
 
 ## Data Registration
 

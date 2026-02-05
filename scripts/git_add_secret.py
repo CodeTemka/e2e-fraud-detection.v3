@@ -88,6 +88,23 @@ def set_github_secret(
     print(f"OK: secret '{name}' uploaded.")
 
 
+def _build_azure_credentials_json(
+    *,
+    client_id: str,
+    client_secret: str,
+    subscription_id: str,
+    tenant_id: str,
+) -> str:
+    # Keep the exact key names expected by azure/login's `creds` input.
+    payload = {
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "subscriptionId": subscription_id,
+        "tenantId": tenant_id,
+    }
+    return json.dumps(payload, separators=(",", ":"))
+
+
 def update_azure_credentials_secret(
     sp_path: Path = DEFAULT_SP_PATH,
 ) -> None:
@@ -112,13 +129,12 @@ def update_azure_credentials_secret(
     if missing:
         raise ValueError(f"Missing fields in {sp_path}: {', '.join(missing)}")
 
-    azure_credentials = {
-        "clientId": client_id,
-        "clientSecret": client_secret,
-        "tenantId": tenant_id,
-        "subscriptionId": subscription_id,
-    }
-
+    azure_credentials = _build_azure_credentials_json(
+        client_id=str(client_id),
+        client_secret=str(client_secret),
+        subscription_id=str(subscription_id),
+        tenant_id=str(tenant_id),
+    )
     set_github_secret("AZURE_CREDENTIALS", azure_credentials)
 
 
