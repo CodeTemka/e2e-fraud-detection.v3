@@ -69,7 +69,16 @@ jobs:
         timeout-minutes: 45
         run: |
           set -euo pipefail
-          fraud-cli run-deployment-pipeline --wait
+          args=()
+          endpoint_name="${ENDPOINT_NAME:-fraud-detection-app}"
+          deployment_name="${DEPLOYMENT_NAME:-blue}"
+          if [ -n "${endpoint_name:-}" ]; then
+            args+=("--endpoint-name" "$endpoint_name")
+          fi
+          if [ -n "${deployment_name:-}" ]; then
+            args+=("--deployment-name" "$deployment_name")
+          fi
+          fraud-cli run-deployment-pipeline --wait "${args[@]}"
 
       - name: Post-deployment monitoring
         timeout-minutes: 30
