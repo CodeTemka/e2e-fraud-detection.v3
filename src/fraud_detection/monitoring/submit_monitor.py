@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 from typing import Any
 
@@ -256,7 +257,14 @@ def build_monitor_job_config(
 ) -> MonitorJobConfig:
     resolved_settings = settings or get_settings()
     env_hash = _env_hash_from_file(ROOT_DIR / "src" / "fraud_detection" / "monitoring" / "monitor_env.yaml")
-    idempotency_key = build_idempotency_key(endpoint_name, mode, env_hash)
+    key_parts: list[str] = [endpoint_name, mode, env_hash]
+    run_id = (os.getenv("GITHUB_RUN_ID") or "").strip()
+    run_attempt = (os.getenv("GITHUB_RUN_ATTEMPT") or "").strip()
+    if run_id:
+        key_parts.append(f"run-{run_id}")
+    if run_attempt:
+        key_parts.append(f"attempt-{run_attempt}")
+    idempotency_key = build_idempotency_key(*key_parts)
     job_name = build_job_name("monitor", idempotency_key)
 
     return MonitorJobConfig(
