@@ -41,3 +41,6 @@ hypothesis/
 .idea/
 .vscode/
 *.code-workspace
+
+
+mlflow.db

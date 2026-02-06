@@ -4,14 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
-
-try:
-    from datetime import UTC as _UTC  # type: ignore
-except ImportError:  # pragma: no cover - Python < 3.11
-    _UTC = _UTC
-
-UTC = _UTC
+from datetime import UTC, datetime
 
 _LOGGER_NAME = "fraud_detection"
 _STANDARD_LOG_ATTRS = {
